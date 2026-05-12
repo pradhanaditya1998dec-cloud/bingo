@@ -18,6 +18,7 @@ export default function TicketCard({
 }) {
   const called = new Set(calledNumbers || []);
   const isBooked = ticket.status === "booked";
+  const isFrozen = ticket.status === "frozen";
   const canBook = gameStatus === "waiting" && !isBooked && !selectable;
   const grid = Array.isArray(ticket.numbers[0])
     ? ticket.numbers
@@ -32,11 +33,10 @@ export default function TicketCard({
   }
 
   return (
-    <div
-      className={`ticket-card ${isBooked ? "booked" : "free"} ${gameStatus === "waiting" ? "waiting" : "live"} ${colorClass} ${selectable && !isBooked ? "selectable" : ""
-        } ${isSelected ? "selected-ticket" : ""} ${staticDisplay ? "static-display" : ""}`}
-      onClick={handleCardClick}
-    >
+   <div
+  className={`ticket-card ${isBooked ? "booked" : isFrozen ? "frozen" : "free"} ${gameStatus === "waiting" ? "waiting" : "live"} ${colorClass} ${selectable && !isBooked && !isFrozen ? "selectable" : ""} ${isSelected ? "selected-ticket" : ""} ${staticDisplay ? "static-display" : ""}`}
+  onClick={handleCardClick}
+>
       {/* Selection indicator */}
       {/* {isSelected && (
         <div className="select-check">✓</div>

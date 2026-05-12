@@ -326,3 +326,28 @@ export async function reopenGame(gameId) {
     calledNumbers: [],   // reset the draw
   });
 }
+
+
+// ── Freeze a ticket (user clicked "Book via WhatsApp") ─────────────────
+// Marks the ticket as frozen so other users can't select/book it.
+// Auto-expires after 15 minutes if admin never books it.
+export async function freezeTickets(gameId, ticketIds) {
+  const frozenAt = Date.now();
+  const updates = {};
+  ticketIds.forEach(id => {
+    updates[`tickets.${id}.status`]    = "frozen";
+    updates[`tickets.${id}.frozenAt`]  = frozenAt;
+    // Clear any prior userName so it doesn't show as booked
+    updates[`tickets.${id}.userName`]  = null;
+    updates[`tickets.${id}.userPhone`] = null;
+  });
+  await updateDoc(doc(db, "games", gameId), updates);
+}
+
+// ── Unfreeze a ticket (admin action, or when booking is confirmed) ──────
+export async function unfreezeTicket(gameId, ticketId) {
+  await updateDoc(doc(db, "games", gameId), {
+    [`tickets.${ticketId}.status`]:   "free",
+    [`tickets.${ticketId}.frozenAt`]: null,
+  });
+}

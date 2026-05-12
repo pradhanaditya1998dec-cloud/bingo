@@ -655,6 +655,11 @@ a {
   opacity: 1;
 }
 
+.ticket-card.frozen {
+  opacity: 0.45;
+  pointer-events: none; /* prevents selection */
+}
+
 .ticket-color-0 {
   background: #f8d2d2 !important;
 }

@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { bookMultipleTickets, releaseTicket } from "../lib/gameStore";
+import { bookMultipleTickets, releaseTicket, unfreezeTicket } from "../lib/gameStore";
 
 function initials(name) {
   return name?.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() || "?";
@@ -17,12 +17,13 @@ function avatarColor(name) {
   return AVATAR_COLORS[i];
 }
 
-export default function BookTicket({ gameId, freeTickets, bookedTickets = [], gameStatus, onBooked }) {
+export default function BookTicket({ gameId, freeTickets, bookedTickets = [], frozenTickets = [], gameStatus, onBooked }) {
   const [selectedTickets, setSelectedTickets] = useState([]);
   const [form, setForm] = useState({ userName: "", userPhone: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [releasing, setReleasing] = useState(null);
+  const [unfreezing, setUnfreezing] = useState(null);
 
   const sortedFree = [...freeTickets].sort((a, b) => parseInt(a.id.slice(1)) - parseInt(b.id.slice(1)));
 
@@ -76,6 +77,27 @@ export default function BookTicket({ gameId, freeTickets, bookedTickets = [], ga
   }
 
   const canRelease = gameStatus === "waiting";
+
+    async function handleUnfreeze(ticketId) {
+    setUnfreezing(ticketId);
+    try {
+      await unfreezeTicket(gameId, ticketId);
+      onBooked?.(`🔓 Ticket ${ticketId} is now free again.`);
+    } catch (e) {
+      alert("Failed to unfreeze: " + e.message);
+    } finally {
+      setUnfreezing(null);
+    }
+  }
+
+  async function handleFreezeBook(ticket) {
+    // Directly book a frozen ticket (confirm + book in one step)
+    const name = ticket.frozenByName || "";
+    if (!window.confirm(`Book frozen ticket ${ticket.id} and confirm it?`)) return;
+    // Re-use existing book flow — admin just selects it and fills the form
+    // Simpler: just unfreeze it so admin can book normally
+    await handleUnfreeze(ticket.id);
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
@@ -178,6 +200,67 @@ export default function BookTicket({ gameId, freeTickets, bookedTickets = [], ga
                       ))}
                     </div>
                   )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+
+
+      {/* ── Frozen tickets (WhatsApp holds) ── */}
+      {frozenTickets.length > 0 && (
+        <div className="sp-section">
+          <div className="sp-section-header">
+            <h3 className="sp-section-title">🔒 WhatsApp Holds</h3>
+            <span className="sp-count-badge" style={{ background: "var(--color-background-warning)", color: "var(--color-text-warning)" }}>
+              {frozenTickets.length}
+            </span>
+          </div>
+          <p className="hint" style={{ marginBottom: 12 }}>
+            These tickets are held by users who clicked "Book via WhatsApp". Book them once confirmed, or unfreeze to release them back.
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            {frozenTickets.map(ticket => {
+              const heldMins = ticket.frozenAt
+                ? Math.round((Date.now() - ticket.frozenAt) / 60000)
+                : null;
+              return (
+                <div key={ticket.id} className="sp-player-row" style={{ borderLeft: "3px solid var(--color-border-warning)" }}>
+                  <div className="sp-avatar" style={{ background: "var(--color-background-warning)", color: "var(--color-text-warning)", fontSize: "1rem" }}>
+                    🔒
+                  </div>
+                  <div className="sp-player-info">
+                    <span className="sp-player-name">{ticket.id}</span>
+                    <span className="sp-player-meta">
+                      Held via WhatsApp{heldMins !== null ? ` · ${heldMins}m ago` : ""}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
+                    {/* Select for booking: pre-select this ticket in the book form above */}
+                    <button
+                      className="admin-btn primary"
+                      style={{ fontSize: "0.75rem", padding: "3px 10px" }}
+                      onClick={() => {
+                        setSelectedTickets(prev =>
+                          prev.includes(ticket.id) ? prev : [...prev, ticket.id]
+                        );
+                        // Scroll up to the booking form
+                        document.querySelector(".sp-form")?.scrollIntoView({ behavior: "smooth" });
+                      }}
+                    >
+                      ✓ Book
+                    </button>
+                    <button
+                      className="admin-btn outline"
+                      style={{ fontSize: "0.75rem", padding: "3px 10px" }}
+                      disabled={unfreezing === ticket.id}
+                      onClick={() => handleUnfreeze(ticket.id)}
+                    >
+                      {unfreezing === ticket.id ? "…" : "🔓 Release"}
+                    </button>
+                  </div>
                 </div>
               );
             })}

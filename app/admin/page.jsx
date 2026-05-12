@@ -732,6 +732,7 @@ export default function AdminPage() {
                       bookedTickets={bookedTickets}
                       gameStatus={game?.status}
                       onBooked={msg => success(msg)}
+                      frozenTickets={ticketList.filter(t => t.status === "frozen")}
                     />
                   </div>
                 </section>
