@@ -1,0 +1,19 @@
+// firestore.rules
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Games collection — public read, only admin can write
+    match /games/{gameId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+
+      // Tickets sub-collection — public read, only admin can write
+      match /tickets/{ticketId} {
+        allow read: if true;
+        allow write: if request.auth != null;
+      }
+    }
+  }
+}
