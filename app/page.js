@@ -6,10 +6,10 @@ import {
   subscribeGame,
   subscribeTickets,
   buildWhatsAppLink,
-  freezeTickets,
+  subscribeAdminSettings,
 } from "./lib/gameStore";
 import { formatGameId, reconstructGrid } from "./lib/tambola";
-import { announceNumber, preloadAudio, initAudio, playGameStartCountdown, playAudioFile, playAudioFileLooping, stopLoopingAudio } from "./lib/audioManager";
+import { announceNumber, preloadAudio, initAudio, playGameStartCountdown, playAudioFile, playAudioFileLooping, stopLoopingAudio, playAudioFilePriority } from "./lib/audioManager";
 import TicketCard from "./components/TicketCard";
 import NumberBoard from "./components/NumberBoard";
 import WinnersPanel from "./components/WinnersPanel";
@@ -18,10 +18,13 @@ import RulesModal from "./components/RulesModal";
 import WinnersModal from "./components/WinnersModal";
 import BookingListModal from "./components/BookingListModal";
 
-const ADMIN_PHONE = process.env.NEXT_PUBLIC_ADMIN_WHATSAPP || "917628863362";
+// const ADMIN_PHONE = process.env.NEXT_PUBLIC_ADMIN_WHATSAPP || "917628863362";
 
 export default function GamePage() {
-
+  // ── Active game ID — driven by Firestore meta pointer ──────────────────
+  // This is the key fix: instead of computing a static gameId at render time,
+  // we subscribe to games/_meta and re-subscribe to game+tickets whenever the
+  // admin starts a new game. Users never need to refresh.
   const [gameId, setGameId] = useState(null);
 
   const [game, setGame] = useState(null);
@@ -43,6 +46,17 @@ export default function GamePage() {
   // Unsubscribe refs — cleaned up when gameId changes
   const unsubGameRef = useRef(null);
   const unsubTicketsRef = useRef(null);
+
+
+  const [adminPhone, setAdminPhone] = useState(
+    process.env.NEXT_PUBLIC_ADMIN_WHATSAPP || "917628863362" // fallback until Firestore loads
+  );
+
+  useEffect(() => {
+    return subscribeAdminSettings(s => {
+      if (s.adminPhone) setAdminPhone(s.adminPhone);
+    });
+  }, []);
 
   // ── Step 1: subscribe to the active game pointer ──────────────────────
   useEffect(() => {
@@ -92,18 +106,18 @@ export default function GamePage() {
     };
   }, [gameId]);
 
-  // ── Announce newly called numbers ─────────────────────────────────────
-  useEffect(() => {
-    if (!game?.calledNumbers?.length) return;
-    const prev = new Set(prevCalled.current);
-    const newNums = game.calledNumbers.filter((n) => !prev.has(n));
-    if (newNums.length) {
-      if (game.status !== "closed") {
-        announceNumber(newNums[newNums.length - 1]);
-      }
-      prevCalled.current = game.calledNumbers;
-    }
-  }, [game?.calledNumbers, game?.status]);
+  // // ── Announce newly called numbers ─────────────────────────────────────
+  // useEffect(() => {
+  //   if (!game?.calledNumbers?.length) return;
+  //   const prev = new Set(prevCalled.current);
+  //   const newNums = game.calledNumbers.filter((n) => !prev.has(n));
+  //   if (newNums.length) {
+  //     if (game.status !== "closed") {
+  //       announceNumber(newNums[newNums.length - 1]);
+  //     }
+  //     prevCalled.current = game.calledNumbers;
+  //   }
+  // }, [game?.calledNumbers, game?.status]);
 
   // ── Countdown to scheduled start ──────────────────────────────────────
   useEffect(() => {
@@ -201,7 +215,8 @@ export default function GamePage() {
       fullHouse: "a Full House",
     };
 
-    let changedType = null;
+    // Collect ALL changed types
+    const changedTypes = [];
     for (const type of Object.keys(currentWinners)) {
       const curr = Array.isArray(currentWinners[type])
         ? currentWinners[type]
@@ -209,24 +224,32 @@ export default function GamePage() {
       const prev = Array.isArray(prevWinners[type])
         ? prevWinners[type]
         : prevWinners[type] ? [prevWinners[type]] : [];
-      if (curr.length > prev.length) { changedType = type; break; }
+      if (curr.length > prev.length) changedTypes.push(type);
     }
 
     prevWinnersRef.current = currentWinners;
 
-    if (!changedType) return;
+    if (!changedTypes.length) return;
     if (game.status === "closed") return;
 
-    playAudioFile("winner-lines.wav");
+    // If fullHouse is among the winners (even alongside others), play bingo
+    if (changedTypes.includes("fullHouse")) {
+     playAudioFilePriority("bingo.mp3");
+    } else {
+      playAudioFile("winner-lines.wav");
+    }
 
-    const w = currentWinners[changedType];
-    const winners = Array.isArray(w) ? w : w ? [w] : [];
-    if (!winners.length) return;
+      // Show toast — prioritise fullHouse if it's among the changed types
+      const toastType = changedTypes.includes("fullHouse") ? "fullHouse" : changedTypes[0];
+      const w = currentWinners[toastType];
+      const winners = Array.isArray(w) ? w : w ? [w] : [];
 
-    const label = winLabels[changedType] || changedType;
-    const names = winners.map((w) => w.userName).join(" & ");
-    setToast({ id: Date.now(), user: names, label, tied: winners.length > 1 });
-    setTimeout(() => setToast(null), 10000);
+      if (winners.length) {
+        const label = winLabels[toastType] || toastType;
+        const names = winners.map((w) => w.userName).join(" & ");
+        setToast({ id: Date.now(), user: names, label, tied: winners.length > 1 });
+        setTimeout(() => setToast(null), 10000);
+      }
 
   }, [game?.winners]);
 
@@ -240,9 +263,9 @@ export default function GamePage() {
   }
   function clearSelection() { setSelectedTickets([]); }
 
-  const whatsappHref = selectedTickets.length
-    ? buildWhatsAppLink(selectedTickets, ADMIN_PHONE)
-    : null;
+ const whatsappHref = selectedTickets.length
+  ? buildWhatsAppLink(selectedTickets, adminPhone)
+  : null;
 
   function formatTime(ts) {
     return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -340,7 +363,7 @@ export default function GamePage() {
       </header>
 
       <div>
-        <img className="tambola-banner" src="/assets/banner2.webp" alt="Welcome to Housie" />
+        <img className="tambola-banner" src="/assets/banner.webp" alt="Welcome to Housie" />
       </div>
 
       {/* Scheduled countdown banner */}
@@ -367,27 +390,12 @@ export default function GamePage() {
           </div>
           <div className="booking-bar-actions">
             <button onClick={clearSelection} className="booking-bar-clear">✕ Clear</button>
-            {/* <a href={whatsappHref} target="_blank" rel="noreferrer" className="booking-bar-wa">
+            <a href={whatsappHref} target="_blank" rel="noreferrer" className="booking-bar-wa">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
               </svg>
               Book via WhatsApp
-            </a> */}
-
-            <button
-            className="booking-bar-wa"
-            onClick={async () => {
-              await freezeTickets(gameId, selectedTickets);
-              clearSelection();
-              window.open(whatsappHref, "_blank", "noreferrer");
-            }}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-              </svg>
-            Book via WhatsApp
-          </button>
-            
+            </a>
           </div>
         </div>
       )}
@@ -398,98 +406,68 @@ export default function GamePage() {
       ) : !gameId || !game ? (
         <div className="loading">No game active right now. Check back soon!</div>
       ) : game.status === "closed" ? (
-        // Victory / Closed screen
         // <main className="victory-screen">
         //   <div className="victory-content">
-        //     {fullHouseWinners.length > 0 && (
-        //       <>
-        //         <div className="victory-emoji">🎉🎊🏆🎊🎉</div>
-        //         <h2 className="victory-title">FULL HOUSE!</h2>
-        //         {fullHouseWinners.map((winner, i) => (
-        //           <div key={i} className="victory-winner-card">
-        //             <p className="victory-label">
-        //               {fullHouseWinners.length > 1 ? `🏆 Winner ${i + 1}` : "Today's Full House Winner"}
-        //             </p>
-        //             <p className="victory-name">{winner.userName}</p>
-        //             <p className="victory-ticket">{winner.ticketId}</p>
-        //           </div>
-        //         ))}
-        //       </>
-        //     )}
 
-        //     <div style={{ margin: "30px 0", padding: "24px", background: "var(--surface)", borderRadius: "12px", border: "1px solid var(--accent)", boxShadow: "0 4px 20px rgba(0,0,0,0.1)" }}>
-        //       <h2 style={{ color: "var(--accent)", marginBottom: "12px", fontSize: "1.8rem" }}>Game Ended</h2>
-        //       <p style={{ fontSize: "1.2rem", color: "var(--text)", lineHeight: "1.5" }}>
+        //     {/* ── Game Winners ── */}
+        //     {[
+        //       { key: 'fullHouse', title: 'FULL HOUSE!', emoji: '🎉🎊🏆🎊🎉', label: 'Full House Winner' },
+        //       { key: 'topLine', title: 'TOP LINE', emoji: '🎯', label: 'Top Line Winner' },
+        //       { key: 'middleLine', title: 'MIDDLE LINE', emoji: '🎯', label: 'Middle Line Winner' },
+        //       { key: 'lastLine', title: 'LAST LINE', emoji: '🎯', label: 'Last Line Winner' },
+        //       { key: 'quickSeven', title: 'QUICK 7', emoji: '⚡', label: 'Quick 7 Winner' },
+        //     ].map(({ key, title, emoji, label }) => {
+        //       const categoryWinners = game?.winners?.[key]
+        //         ? Array.isArray(game.winners[key]) ? game.winners[key] : [game.winners[key]]
+        //         : [];
+        //       if (categoryWinners.length === 0) return null;
+              
+        //       return (
+        //         <div key={key} className="victory-section" style={{ marginTop: key === 'fullHouse' ? '0' : '40px' }}>
+        //           <div className="victory-emoji" style={{ fontSize: key === 'fullHouse' ? '2.5rem' : '2rem' }}>{emoji}</div>
+        //           <h2 className="victory-title" style={{ fontSize: key === 'fullHouse' ? '2rem' : '1.5rem', marginTop: '10px' }}>{title}</h2>
+        //           {categoryWinners.map((winner, i) => (
+        //             <div key={i} className="victory-winner-card" style={{ marginTop: '20px' }}>
+        //               <p className="victory-label">
+        //                 {categoryWinners.length > 1 ? `🏆 Winner ${i + 1}` : `Today's ${label}`}
+        //               </p>
+        //               <p className="victory-name">{winner.userName}</p>
+        //               {/* Ticket display */}
+        //               <WinnerTicketDisplay
+        //                 ticket={tickets[winner.ticketId]}
+        //                 calledNumbers={game.calledNumbers || []}
+        //                 winType={key}
+        //               />
+        //             </div>
+        //           ))}
+        //         </div>
+        //       );
+        //     })}
+
+        //     {/* ── Game over message ── */}
+        //     <div className="victory-end-card">
+        //       <h2 className="victory-end-title">Game Ended</h2>
+        //       <p className="victory-end-msg">
         //         Bookings for the next game will start soon.<br />Be Ready!
         //       </p>
         //     </div>
 
-        //     <Link
-        //       href="/winners"
+        //     <button
+        //       onClick={() => setActiveModal('winners')}
         //       className="admin-btn primary"
         //       style={{ marginTop: 24, display: "inline-block", padding: "12px 24px" }}
         //     >
         //       View All Past Winners
-        //     </Link>
+        //     </button>
+
         //   </div>
         // </main>
 
-        <main className="victory-screen">
-          <div className="victory-content">
-
-            {/* ── Game Winners ── */}
-            {[
-              { key: 'fullHouse', title: 'FULL HOUSE!', emoji: '🎉🎊🏆🎊🎉', label: 'Full House Winner' },
-              { key: 'topLine', title: 'TOP LINE', emoji: '🎯', label: 'Top Line Winner' },
-              { key: 'middleLine', title: 'MIDDLE LINE', emoji: '🎯', label: 'Middle Line Winner' },
-              { key: 'lastLine', title: 'LAST LINE', emoji: '🎯', label: 'Last Line Winner' },
-              { key: 'quickSeven', title: 'QUICK 7', emoji: '⚡', label: 'Quick 7 Winner' },
-            ].map(({ key, title, emoji, label }) => {
-              const categoryWinners = game?.winners?.[key]
-                ? Array.isArray(game.winners[key]) ? game.winners[key] : [game.winners[key]]
-                : [];
-              if (categoryWinners.length === 0) return null;
-              
-              return (
-                <div key={key} className="victory-section" style={{ marginTop: key === 'fullHouse' ? '0' : '40px' }}>
-                  <div className="victory-emoji" style={{ fontSize: key === 'fullHouse' ? '2.5rem' : '2rem' }}>{emoji}</div>
-                  <h2 className="victory-title" style={{ fontSize: key === 'fullHouse' ? '2rem' : '1.5rem', marginTop: '10px' }}>{title}</h2>
-                  {categoryWinners.map((winner, i) => (
-                    <div key={i} className="victory-winner-card" style={{ marginTop: '20px' }}>
-                      <p className="victory-label">
-                        {categoryWinners.length > 1 ? `🏆 Winner ${i + 1}` : `Today's ${label}`}
-                      </p>
-                      <p className="victory-name">{winner.userName}</p>
-                      {/* Ticket display */}
-                      <WinnerTicketDisplay
-                        ticket={tickets[winner.ticketId]}
-                        calledNumbers={game.calledNumbers || []}
-                        winType={key}
-                      />
-                    </div>
-                  ))}
-                </div>
-              );
-            })}
-
-            {/* ── Game over message ── */}
-            <div className="victory-end-card">
-              <h2 className="victory-end-title">Game Ended</h2>
-              <p className="victory-end-msg">
-                Bookings for the next game will start soon.<br />Be Ready!
-              </p>
-            </div>
-
-            <button
-              onClick={() => setActiveModal('winners')}
-              className="admin-btn primary"
-              style={{ marginTop: 24, display: "inline-block", padding: "12px 24px" }}
-            >
-              View All Past Winners
-            </button>
-
-          </div>
-        </main>
+        <VictoryScreen
+          game={game}
+          tickets={tickets}
+          setActiveModal={setActiveModal}
+        />
 
       ) : (
         <main className="main-layout">
@@ -627,5 +605,191 @@ function WinnerTicketDisplay({ ticket, calledNumbers, winType }) {
         ))}
       </div>
     </div>
+  );
+}
+
+
+
+
+function VictoryScreen({ game, tickets, setActiveModal }) {
+  const canvasRef = useRef(null);
+  const rootRef = useRef(null);
+
+  useEffect(() => {
+    // ── Stars ──
+    const starsLayer = document.getElementById('starsLayer');
+    for (let i = 0; i < 80; i++) {
+      const s = document.createElement('div');
+      s.className = 'vs-star';
+      const sz = Math.random() * 2.5 + 0.5;
+      s.style.cssText = `width:${sz}px;height:${sz}px;left:${Math.random()*100}%;top:${Math.random()*100}%;--d:${(Math.random()*3+1.5).toFixed(1)}s;animation-delay:${(Math.random()*4).toFixed(1)}s`;
+      starsLayer.appendChild(s);
+    }
+
+    // ── Confetti ──
+    const confettiLayer = document.getElementById('confettiLayer');
+    const cfColors = ['#f5a623','#ff6b6b','#6bffce','#ce6bff','#6baeff','#fff56b'];
+    const intervals = [];
+
+    function spawnConfetti() {
+      const c = document.createElement('div');
+      c.className = 'vs-cf';
+      const dur = (Math.random() * 3 + 2.5).toFixed(1);
+      c.style.cssText = `left:${Math.random()*100}%;background:${cfColors[Math.floor(Math.random()*cfColors.length)]};width:${Math.random()*8+5}px;height:${Math.random()*8+5}px;border-radius:${Math.random()>0.5?'50%':'2px'};animation:vsCfFall ${dur}s 0s linear forwards`;
+      confettiLayer.appendChild(c);
+      setTimeout(() => c.remove(), parseFloat(dur) * 1000 + 200);
+    }
+    for (let i = 0; i < 55; i++) spawnConfetti();
+    intervals.push(setInterval(spawnConfetti, 200));
+
+    // ── Fireworks ──
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    let W, H, animId;
+
+    function resize() {
+      const root = rootRef.current;
+      if (!root) return;
+      W = canvas.width = root.offsetWidth;
+      H = canvas.height = root.offsetHeight;
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    const PALETTE = ['#f5a623','#ff6b6b','#ff6bce','#6bffce','#6baeff','#ce6bff','#fff','#ffec6b','#6bff8e'];
+    const fwList = [];
+
+    function Firework(x, y) {
+      this.color = PALETTE[Math.floor(Math.random() * PALETTE.length)];
+      this.particles = [];
+      const count = 55 + Math.floor(Math.random() * 35);
+      for (let i = 0; i < count; i++) {
+        const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.3;
+        const speed = 1.8 + Math.random() * 4.5;
+        this.particles.push({ x, y, vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed, life: 1, decay: 0.012 + Math.random()*0.016, size: 2 + Math.random()*2.5, trail: [] });
+      }
+    }
+    Firework.prototype.update = function() {
+      this.particles.forEach(p => {
+        p.trail.push({x:p.x,y:p.y});
+        if (p.trail.length > 5) p.trail.shift();
+        p.x += p.vx; p.y += p.vy;
+        p.vy += 0.065; p.vx *= 0.97;
+        p.life -= p.decay;
+      });
+      this.particles = this.particles.filter(p => p.life > 0);
+    };
+    Firework.prototype.draw = function() {
+      this.particles.forEach(p => {
+        ctx.save();
+        for (let t = 0; t < p.trail.length - 1; t++) {
+          ctx.beginPath();
+          ctx.moveTo(p.trail[t].x, p.trail[t].y);
+          ctx.lineTo(p.trail[t+1].x, p.trail[t+1].y);
+          ctx.strokeStyle = this.color;
+          ctx.globalAlpha = (t / p.trail.length) * p.life * 0.4;
+          ctx.lineWidth = p.size * 0.5;
+          ctx.stroke();
+        }
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI*2);
+        ctx.fillStyle = this.color;
+        ctx.globalAlpha = p.life;
+        ctx.fill();
+        ctx.restore();
+      });
+    };
+    Firework.prototype.done = function() { return this.particles.length === 0; };
+
+    let lastLaunch = 0;
+    function animate(ts) {
+      animId = requestAnimationFrame(animate);
+      ctx.fillStyle = 'rgba(10,8,22,0.18)';
+      ctx.fillRect(0, 0, W, H);
+      if (ts - lastLaunch > 380 + Math.random()*500) {
+        const x = W*0.15 + Math.random()*W*0.7;
+        const y = H*0.05 + Math.random()*H*0.55;
+        fwList.push(new Firework(x, y));
+        if (Math.random() > 0.55) fwList.push(new Firework(W*0.15 + Math.random()*W*0.7, H*0.05 + Math.random()*H*0.55));
+        lastLaunch = ts;
+      }
+      for (let i = fwList.length - 1; i >= 0; i--) {
+        fwList[i].update(); fwList[i].draw();
+        if (fwList[i].done()) fwList.splice(i, 1);
+      }
+    }
+    animId = requestAnimationFrame(animate);
+
+    return () => {
+      window.removeEventListener('resize', resize);
+      cancelAnimationFrame(animId);
+      intervals.forEach(clearInterval);
+    };
+  }, []);
+
+  const categories = [
+    { key: 'fullHouse', title: 'FULL HOUSE!', emoji: '🎉🏆🏆🎉', label: 'Full House Winner' },
+    { key: 'topLine',   title: 'TOP LINE',    emoji: '🎯', label: 'Top Line Winner' },
+    { key: 'middleLine',title: 'MIDDLE LINE', emoji: '🎯', label: 'Middle Line Winner' },
+    { key: 'lastLine',  title: 'LAST LINE',   emoji: '🎯', label: 'Last Line Winner' },
+    { key: 'quickSeven',title: 'QUICK 7',     emoji: '⚡', label: 'Quick 7 Winner' },
+  ];
+
+  return (
+    <main className="vs-root" ref={rootRef}>
+      <div className="vs-stars-layer" id="starsLayer" />
+      <canvas ref={canvasRef} className="vs-canvas" />
+      <div className="vs-confetti-layer" id="confettiLayer" />
+
+      <div className="vs-content">
+
+        {categories.map(({ key, title, emoji, label }, idx) => {
+          const winners = game?.winners?.[key]
+            ? Array.isArray(game.winners[key]) ? game.winners[key] : [game.winners[key]]
+            : [];
+          if (winners.length === 0) return null;
+
+          const isFullHouse = key === 'fullHouse';
+
+          return (
+            <div key={key} className={`vs-section ${isFullHouse ? 'vs-fullhouse-section' : ''}`} style={{ animationDelay: `${idx * 0.1}s` }}>
+              {isFullHouse && <span className="vs-trophy-emoji">{emoji}</span>}
+              <h2 className={isFullHouse ? 'vs-full-title' : 'vs-line-title'}>
+                {!isFullHouse && <span className="vs-line-emoji">{emoji}</span>}
+                {title}
+              </h2>
+
+              {winners.map((winner, i) => (
+                <div key={i} className="vs-winner-card">
+                  <p className="vs-winner-label">
+                    {winners.length > 1 ? `🏆 Winner ${i + 1}` : `Today's ${label}`}
+                  </p>
+                  <p className="vs-winner-name">{winner.userName}</p>
+                  <WinnerTicketDisplay
+                    ticket={tickets[winner.ticketId]}
+                    calledNumbers={game.calledNumbers || []}
+                    winType={key}
+                  />
+                </div>
+              ))}
+            </div>
+          );
+        })}
+
+        <div className="vs-divider" />
+
+        <div className="vs-end-card">
+          <h2 className="vs-end-title">Game Ended</h2>
+          <p className="vs-end-msg">
+            Bookings for the next game will start soon.<br />Be Ready!
+          </p>
+        </div>
+
+        <button className="vs-past-btn" onClick={() => setActiveModal('winners')}>
+          View All Past Winners
+        </button>
+
+      </div>
+    </main>
   );
 }

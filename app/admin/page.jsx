@@ -8,7 +8,7 @@ import {
   generateGameId, formatGameId,
   recordAllWinners,
   reopenGame,
-  addMoreTickets,
+  subscribeAdminSettings, saveAdminSettings,
 } from "../lib/gameStore";
 import { checkWinners, WIN_TYPES, WIN_LABELS, announceNumber } from "../lib/tambola";
 import { auth } from "../lib/firebase";
@@ -41,9 +41,19 @@ const NAV_SECTIONS = [
       { id: "past", label: "Past Games", icon: <IconHistory /> },
     ],
   },
+  {
+    label: "Config",
+    items: [
+      { id: "settings", label: "Settings", icon: <IconSettings /> },
+    ],
+  },
 ];
 
 // ── Icons ─────────────────────────────────────────────────
+function IconSettings() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>;
+}
+
 function IconGrid() {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>;
 }
@@ -74,6 +84,44 @@ export default function AdminPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState("");
+
+  const [adminSettings, setAdminSettings] = useState({});
+  const [settingsForm, setSettingsForm] = useState({ adminPhone: "", gameName: "", ticketPrice: "" });
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsMsg, setSettingsMsg] = useState("");
+
+  // subscribe to settings
+  useEffect(() => {
+    if (!user) return;
+    return subscribeAdminSettings(s => {
+      setAdminSettings(s);
+      setSettingsForm({
+        adminPhone:  s.adminPhone  || "",
+        gameName:    s.gameName    || "",
+        ticketPrice: s.ticketPrice || "",
+      });
+    });
+  }, [user]);
+
+  // handler
+  async function handleSaveSettings(e) {
+    e.preventDefault();
+    setSettingsSaving(true);
+    setSettingsMsg("");
+    try {
+      await saveAdminSettings({
+        adminPhone:  settingsForm.adminPhone.trim(),
+        gameName:    settingsForm.gameName.trim(),
+        ticketPrice: settingsForm.ticketPrice.trim(),
+      });
+      setSettingsMsg("✓ Settings saved.");
+      success("Settings saved!");
+    } catch (err) {
+      setSettingsMsg("Error: " + err.message);
+    } finally {
+      setSettingsSaving(false);
+    }
+  }
 
   const [game, setGame] = useState(null);
   const [tickets, setTickets] = useState({});
@@ -107,11 +155,6 @@ export default function AdminPage() {
   const gameRef = useRef(null);
   const unsubGame = useRef(null);
   const unsubTix = useRef(null);
-
-  const [addTicketsModal, setAddTicketsModal] = useState(false);
-  const [addCount, setAddCount] = useState(10);
-  const [addSheetSize, setAddSheetSize] = useState(6);
-  const [addingTickets, setAddingTickets] = useState(false);
 
   // ── Auth ─────────────────────────────────────────────────
   useEffect(() => { return onAuthStateChanged(auth, setUser); }, []);
@@ -161,7 +204,7 @@ export default function AdminPage() {
         })));
 
         // Play winner.wav simultaneously with any ongoing number announcement
-        playWinnerSound();
+        // playWinnerSound();
 
         // Toast for each winner
         winners.forEach(t => success(`🎉 ${WIN_LABELS[type]}: ${t.userName} (${t.id})`));
@@ -227,19 +270,6 @@ export default function AdminPage() {
     setDrawing(false);
   }, [gameId]);
 
-  function resetAutoDrawTimer() {
-    // Clear existing interval and restart it fresh from now
-    clearInterval(autoDrawRef.current);
-    clearInterval(autoCountdownRef.current);
-
-    setAutoCountdown(autoDrawInterval);
-
-    autoCountdownRef.current = setInterval(() =>
-      setAutoCountdown(p => p <= 1 ? autoDrawInterval : p - 1), 1000);
-
-    autoDrawRef.current = setInterval(() => drawOne(), autoDrawInterval * 1000);
-  }
-
   function startAutoDraw() {
     if (autoDrawRef.current) return;
     setAutoDrawEnabled(true);
@@ -276,22 +306,6 @@ export default function AdminPage() {
       success(`✅ Game created! ${ticketCount} tickets · Prizes: ${ruleNames}`);
     } catch (e) { toastError("Init failed: " + e.message); }
     finally { setGenerating(false); }
-  }
-
-  // ── Start game confirm ────────────────────────────────────
-  function confirmStartGame() {
-    setModal({
-      open: true,
-      title: "Start Game?",
-      message: "This will make the game live for all players. Are you sure you're ready?",
-      confirmLabel: "Yes, Start Game",
-      danger: false,
-      onConfirm: async () => {
-        setModal(m => ({ ...m, open: false }));
-        await setGameStatus(gameId, "live");
-        success("Game is now live!");
-      },
-    });
   }
 
   // ── End game confirm ──────────────────────────────────────
@@ -546,8 +560,8 @@ export default function AdminPage() {
                       {generating ? "⏳ Generating…" : "⚙️ New Game / Reset"}
                     </button>
 
-                   <button
-                      onClick={confirmStartGame}
+                    <button
+                      onClick={() => setGameStatus(gameId, "live")}
                       disabled={!gameId || game?.status === "live" || game?.status === "closed"}
                       className="admin-btn primary"
                     >
@@ -565,17 +579,9 @@ export default function AdminPage() {
                     <button
                       onClick={confirmReopenGame}
                       disabled={!gameId || game?.status !== "closed"}
-                      className="admin-btn reopen"
+                      className="admin-btn"
                     >
                       🔄 Reopen
-                    </button>
-
-                    <button
-                      onClick={() => setAddTicketsModal(true)}
-                      disabled={!gameId || game?.status === "closed"}
-                      className="admin-btn outline"
-                    >
-                      🎫 Add More Tickets
                     </button>
                   </div>
 
@@ -706,16 +712,8 @@ export default function AdminPage() {
                   <NumberBoard
                     key={gameId ?? "empty"}
                     calledNumbers={calledArr}
-                    interactive={game?.status === "live"}
-                    onPickNumber={n => {
-                      if (autoDrawEnabled) {
-                        // Draw immediately + reset the 8s countdown from now
-                        drawOne(n);
-                        resetAutoDrawTimer();
-                      } else {
-                        drawOne(n);
-                      }
-                    }}
+                    interactive={game?.status === "live" && !autoDrawEnabled}
+                    onPickNumber={n => { stopAutoDraw(); drawOne(n); }}
                   />
                 </section>
 
@@ -732,7 +730,6 @@ export default function AdminPage() {
                       bookedTickets={bookedTickets}
                       gameStatus={game?.status}
                       onBooked={msg => success(msg)}
-                      frozenTickets={ticketList.filter(t => t.status === "frozen")}
                     />
                   </div>
                 </section>
@@ -757,138 +754,84 @@ export default function AdminPage() {
                 </section>
               )}
 
-              {addTicketsModal && (
-                <div className="modal-backdrop" onClick={() => setAddTicketsModal(false)}>
-                  <div className="modal-box atm-box" onClick={e => e.stopPropagation()}>
+              {/* ── SETTINGS ── */}
+              {activeRoute === "settings" && (
+                <section className="admin-card" style={{ gridColumn: "1 / -1" }}>
+                  <h2>Settings</h2>
+                  <p className="hint" style={{ marginBottom: 20 }}>
+                    These values are saved to Firestore and used across the app in real time.
+                  </p>
 
-                    {/* Header */}
-                    <div className="atm-header">
-                      <span className="atm-header-icon">🎫</span>
-                      <div>
-                        <h3 className="atm-title">Add More Tickets</h3>
-                        <p className="atm-subtitle">
-                          New tickets will be numbered from T{ticketList.length + 1} onwards.
-                          Game state is not affected.
+                  <form onSubmit={handleSaveSettings}>
+
+                    {/* WhatsApp Number */}
+                    <div className="settings-field">
+                      <label className="settings-label">WhatsApp Admin Number</label>
+                      <p className="hint">Include country code, no + or spaces. E.g. <code>917628863362</code></p>
+                      <input
+                        type="text"
+                        className="admin-input"
+                        placeholder="917628863362"
+                        value={settingsForm.adminPhone}
+                        onChange={e => setSettingsForm(f => ({ ...f, adminPhone: e.target.value }))}
+                      />
+                      {adminSettings.adminPhone && (
+                        <p className="hint" style={{ marginTop: 4 }}>
+                          Current:{" "}
+                          <a
+                            href={`https://wa.me/${adminSettings.adminPhone}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ color: "var(--accent)" }}
+                          >
+                            wa.me/{adminSettings.adminPhone}
+                          </a>
                         </p>
-                      </div>
+                      )}
                     </div>
 
-                    {/* Config */}
-                    <div className="atm-body">
-
-                      {/* Info row */}
-                      <div className="atm-info-row">
-                        <div className="atm-info-item">
-                          <span className="atm-info-label">Current tickets</span>
-                          <span className="atm-info-value">{ticketList.length}</span>
-                        </div>
-                        <div className="atm-info-divider" />
-                        <div className="atm-info-item">
-                          <span className="atm-info-label">Booked</span>
-                          <span className="atm-info-value">{bookedTickets.length}</span>
-                        </div>
-                        <div className="atm-info-divider" />
-                        <div className="atm-info-item">
-                          <span className="atm-info-label">Free</span>
-                          <span className="atm-info-value">{freeTickets.length}</span>
-                        </div>
-                      </div>
-
-                      {/* Inputs */}
-                      <div className="atm-fields">
-                        <div className="atm-field">
-                          <label className="atm-label">Tickets to add</label>
-                          <div className="atm-input-row">
-                            <button
-                              className="atm-stepper"
-                              onClick={() => setAddCount(c => Math.max(1, +c - 1))}
-                            >−</button>
-                            <input
-                              type="number" min="1" max="200"
-                              value={addCount}
-                              onChange={e => setAddCount(e.target.value)}
-                              className="admin-input atm-number-input"
-                            />
-                            <button
-                              className="atm-stepper"
-                              onClick={() => setAddCount(c => Math.min(200, +c + 1))}
-                            >+</button>
-                          </div>
-                        </div>
-
-                        <div className="atm-field">
-                          <label className="atm-label">Tickets per sheet</label>
-                          <div className="atm-input-row">
-                            <button
-                              className="atm-stepper"
-                              onClick={() => setAddSheetSize(s => Math.max(2, +s - 1))}
-                            >−</button>
-                            <input
-                              type="number" min="2" max="9"
-                              value={addSheetSize}
-                              onChange={e => setAddSheetSize(e.target.value)}
-                              className="admin-input atm-number-input"
-                            />
-                            <button
-                              className="atm-stepper"
-                              onClick={() => setAddSheetSize(s => Math.min(9, +s + 1))}
-                            >+</button>
-                          </div>
-                          <p className="atm-hint">Numbers won't repeat within a sheet (max 9)</p>
-                        </div>
-                      </div>
-
-                      {/* Summary */}
-                      <div className="atm-summary">
-                        Will add <strong>{addCount}</strong> unique tickets
-                        ({Math.ceil(+addCount / +addSheetSize)} sheet{Math.ceil(+addCount / +addSheetSize) !== 1 ? "s" : ""})
-                        numbered <strong>T{ticketList.length + 1}</strong> to{" "}
-                        <strong>T{ticketList.length + +addCount}</strong>.
-                        No duplicate grids guaranteed.
-                      </div>
+                    {/* Game Name */}
+                    <div className="settings-field">
+                      <label className="settings-label">Game Name</label>
+                      <p className="hint">Shown to players on the booking page.</p>
+                      <input
+                        type="text"
+                        className="admin-input"
+                        placeholder="Sunday Tambola"
+                        value={settingsForm.gameName}
+                        onChange={e => setSettingsForm(f => ({ ...f, gameName: e.target.value }))}
+                      />
                     </div>
 
-                    {/* Actions */}
-                    <div className="atm-actions">
-                      <button
-                        onClick={() => setAddTicketsModal(false)}
-                        className="admin-btn outline"
-                        disabled={addingTickets}
+                    {/* Ticket Price */}
+                    <div className="settings-field">
+                      <label className="settings-label">Ticket Price (₹)</label>
+                      <p className="hint">Shown on the player booking page.</p>
+                      <input
+                        type="number"
+                        className="admin-input"
+                        placeholder="50"
+                        value={settingsForm.ticketPrice}
+                        onChange={e => setSettingsForm(f => ({ ...f, ticketPrice: e.target.value }))}
+                        style={{ maxWidth: 160 }}
+                      />
+                    </div>
+
+                    {settingsMsg && (
+                      <p
+                        className={settingsMsg.startsWith("✓") ? "success-msg" : "error-msg"}
+                        style={{ marginBottom: 12 }}
                       >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={async () => {
-                          const count = parseInt(addCount, 10);
-                          const size  = parseInt(addSheetSize, 10);
-                          if (isNaN(count) || count < 1 || count > 200) {
-                            toastError("Count must be 1–200."); return;
-                          }
-                          if (isNaN(size) || size < 2 || size > 9) {
-                            toastError("Sheet size must be 2–9."); return;
-                          }
-                          setAddingTickets(true);
-                          try {
-                            const added = await addMoreTickets(gameId, count, size);
-                            success(`✅ ${added} ticket${added > 1 ? "s" : ""} added!`);
-                            setAddTicketsModal(false);
-                          } catch (e) {
-                            toastError("Failed: " + e.message);
-                          } finally {
-                            setAddingTickets(false);
-                          }
-                        }}
-                        disabled={addingTickets}
-                        className="admin-btn primary"
-                      >
-                        {addingTickets
-                          ? <><span className="atm-spinner" /> Generating…</>
-                          : `🎫 Add ${addCount} Tickets`}
-                      </button>
-                    </div>
+                        {settingsMsg}
+                      </p>
+                    )}
 
-                  </div>
-                </div>
+                    <button type="submit" className="admin-btn primary" disabled={settingsSaving}>
+                      {settingsSaving ? "Saving…" : "💾 Save Settings"}
+                    </button>
+
+                  </form>
+                </section>
               )}
 
             </div>

@@ -26,7 +26,7 @@ function unlock() {
   audioEl = new Audio();
   audioEl.preload = "auto";
   audioEl.volume = 0;
-  audioEl.src = "/audio/1.mp3";
+  audioEl.src = "/audio/beep.mp3";
 
   winnerEl = new Audio();
   winnerEl.preload = "auto";
@@ -218,4 +218,12 @@ async function preloadNext() {
   const n = preloadQueue.shift();
   try { await fetch(`/audio/${n}.mp3`, { priority: "low" }); } catch (_) { }
   setTimeout(preloadNext, 80);
+}
+
+
+export function playAudioFilePriority(filename) {
+  if (typeof window === "undefined" || !unlocked) return;
+  // Remove any winner-lines.wav entries from the queue
+  audioQueue = audioQueue.filter(item => !item.src.includes("winner-lines.wav"));
+  _enqueue(`/audio/${filename}`, null);
 }

@@ -1,34 +1,3 @@
-// lib/gameStore.js
-//
-// ── READ OPTIMIZATION — WHY 93K READS HAPPENED ───────────────────────────────
-//
-// The old approach stored tickets as a Firestore sub-collection (50 docs each).
-// subscribeTickets() used onSnapshot(collection(...)) which means:
-//   • First load:  50 reads (one per ticket doc)
-//   • Every time ONE ticket changes: Firestore re-sends ALL 50 docs to every
-//     connected browser.
-//   • 10 users watching × 50 docs × 90 number draws = 45,000 reads per game
-//   • Plus the getAllBookings() loop that read every ticket sub-collection of
-//     every past game = hundreds of extra reads each time the admin opens it.
-//
-// ── THE FIX ───────────────────────────────────────────────────────────────────
-//
-// 1. Tickets are now stored as a MAP field inside the game document itself.
-//    { tickets: { T01: {...}, T02: {...}, ... } }
-//    subscribeGame() fires once per any change → 1 read per event for all users.
-//    10 users × 1 doc × 90 draws = 900 reads per game (98% reduction).
-//
-// 2. A separate flat `bookings` collection stores one doc per booked ticket.
-//    getAllBookings() reads just that collection — no cross-game ticket scanning.
-//
-// 3. getAllPastGames() strips the `tickets` map before returning game data so
-//    the large tickets object is never sent unnecessarily.
-//
-// ── ESTIMATED READS ──────────────────────────────────────────────────────────
-//   Before: ~93,000 reads/day
-//   After:  ~1,500–2,000 reads/day  (for same usage pattern)
-// ─────────────────────────────────────────────────────────────────────────────
-
 import {
   doc, collection, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
   onSnapshot, arrayUnion, writeBatch,
@@ -82,60 +51,7 @@ export async function initTickets(gameId, count = 50, sheetSize = 6) {
   await updateDoc(doc(db, "games", gameId), { tickets: ticketsMap });
 }
 
-// ── Add more tickets to an existing game ──────────────────
-// Generates additional tickets and appends to the existing tickets map.
-// Guarantees no new ticket has the exact same number grid as any existing ticket.
-export async function addMoreTickets(gameId, additionalCount = 10, sheetSize = 6) {
-  const snap = await getDoc(doc(db, "games", gameId));
-  if (!snap.exists()) throw new Error("Game not found");
-
-  const existingTickets = snap.data().tickets || {};
-  const existingIds = Object.keys(existingTickets);
-
-  // Find highest existing ticket number so new ones continue from there
-  let maxIndex = 0;
-  existingIds.forEach(id => {
-    const num = parseInt(id.replace("T", ""), 10);
-    if (!isNaN(num) && num > maxIndex) maxIndex = num;
-  });
-
-  // Build a set of existing grid fingerprints for fast duplicate detection
-  // Fingerprint = the flat numbers array joined as a string
-  const existingFingerprints = new Set(
-    existingIds.map(id => (existingTickets[id].numbers || []).join(","))
-  );
-
-  // Generate tickets, retrying any that duplicate an existing grid
-  const newTickets = [];
-  let attempts = 0;
-  const MAX_ATTEMPTS = additionalCount * 50; // safety cap
-
-  while (newTickets.length < additionalCount && attempts < MAX_ATTEMPTS) {
-    attempts++;
-    const [candidate] = generateTickets(1, sheetSize); // generate one at a time
-    const fingerprint = (candidate.numbers || []).join(",");
-
-    if (existingFingerprints.has(fingerprint)) continue; // duplicate — skip
-
-    // Accept this ticket
-    existingFingerprints.add(fingerprint); // prevent duplicates within new batch too
-    newTickets.push(candidate);
-  }
-
-  if (newTickets.length < additionalCount) {
-    console.warn(`addMoreTickets: only generated ${newTickets.length}/${additionalCount} unique tickets after ${MAX_ATTEMPTS} attempts`);
-  }
-
-  // Re-index starting after existing tickets
-  const updates = {};
-  newTickets.forEach((t, i) => {
-    const newId = `T${maxIndex + i + 1}`;
-    updates[`tickets.${newId}`] = { ...t, id: newId };
-  });
-
-  await updateDoc(doc(db, "games", gameId), updates);
-  return newTickets.length;
-}
+// ── Subscribe to game (includes tickets map inside) ────────
 // ONE listener, ONE document = 1 read per change for ALL connected users
 export function subscribeGame(gameId, callback) {
   return onSnapshot(doc(db, "games", gameId), snap =>
@@ -319,7 +235,6 @@ export function formatGameId(gameId) {
   return `${dateStr} · ${hour}:${String(mn).padStart(2, "0")} ${ampm}`;
 }
 
-
 export async function reopenGame(gameId) {
   await updateDoc(doc(db, "games", gameId), { 
     status: "waiting",
@@ -327,27 +242,18 @@ export async function reopenGame(gameId) {
   });
 }
 
-
-// ── Freeze a ticket (user clicked "Book via WhatsApp") ─────────────────
-// Marks the ticket as frozen so other users can't select/book it.
-// Auto-expires after 15 minutes if admin never books it.
-export async function freezeTickets(gameId, ticketIds) {
-  const frozenAt = Date.now();
-  const updates = {};
-  ticketIds.forEach(id => {
-    updates[`tickets.${id}.status`]    = "frozen";
-    updates[`tickets.${id}.frozenAt`]  = frozenAt;
-    // Clear any prior userName so it doesn't show as booked
-    updates[`tickets.${id}.userName`]  = null;
-    updates[`tickets.${id}.userPhone`] = null;
-  });
-  await updateDoc(doc(db, "games", gameId), updates);
+// ── Admin Settings ─────────────────────────────────────────
+export async function getAdminSettings() {
+  const snap = await getDoc(doc(db, "games", "_settings"));
+  return snap.exists() ? snap.data() : {};
 }
 
-// ── Unfreeze a ticket (admin action, or when booking is confirmed) ──────
-export async function unfreezeTicket(gameId, ticketId) {
-  await updateDoc(doc(db, "games", gameId), {
-    [`tickets.${ticketId}.status`]:   "free",
-    [`tickets.${ticketId}.frozenAt`]: null,
-  });
+export async function saveAdminSettings(settings) {
+  await setDoc(doc(db, "games", "_settings"), settings, { merge: true });
+}
+
+export function subscribeAdminSettings(callback) {
+  return onSnapshot(doc(db, "games", "_settings"), snap =>
+    callback(snap.exists() ? snap.data() : {})
+  );
 }

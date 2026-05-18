@@ -655,11 +655,6 @@ a {
   opacity: 1;
 }
 
-.ticket-card.frozen {
-  opacity: 0.45;
-  pointer-events: none; /* prevents selection */
-}
-
 .ticket-color-0 {
   background: #f8d2d2 !important;
 }
@@ -2131,8 +2126,8 @@ a {
 
 /* Selected overrides booked border */
 .ticket-card.selected-ticket {
-  border: 2px solid #1565c0 !important;
-  box-shadow: 0 0 10px rgba(21, 101, 192, 0.25) !important;
+  border: 2px solid var(--accent) !important;
+  box-shadow: 0 0 10px rgba(192, 152, 21, 0.25) !important;
 }
 
 .select-check {
@@ -2142,7 +2137,7 @@ a {
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: #1565c0;
+  background: var(--accent);
   color: #fff;
   font-size: 0.7rem;
   font-weight: 700;
@@ -2188,9 +2183,9 @@ a {
 }
 
 .selected-badge {
-  background: rgba(21, 101, 192, 0.12);
-  color: #1565c0;
-  border: 1px solid rgba(21, 101, 192, 0.3);
+  background: rgba(192, 146, 21, 0.185);
+  color: var(--accent);
+  border: 1px solid var(--accent);
 }
 
 
@@ -2382,7 +2377,7 @@ a {
   font-size: 0.8rem;
   color: var(--text-dim);
   margin-bottom: 10px;
-  margin-top: -8px;
+  margin-top: 8px;
 }
 
 .control-row {
@@ -2770,11 +2765,6 @@ a {
 
 .admin-btn.danger {
   background: var(--accent2);
-  color: #fff;
-}
-
-.admin-btn.reopen {
-  background: orangered;
   color: #fff;
 }
 
@@ -5282,109 +5272,222 @@ a {
 }
 
 
-/* ── Add More Tickets Modal ───────────────────────────── */
-.atm-box {
-  max-width: 460px;
-  padding: 0;
-  overflow: hidden;
-}
-.atm-header {
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  padding: 22px 24px 18px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg2);
-}
-.atm-header-icon { font-size: 1.8rem; flex-shrink: 0; }
-.atm-title {
-  font-size: 1rem;
-  font-weight: 700;
-  color: var(--text);
-  margin: 0 0 4px;
-}
-.atm-subtitle {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  line-height: 1.4;
-  margin: 0;
-}
-.atm-body { padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; }
-
-/* Info row */
-.atm-info-row {
+/* ── Victory Screen Root ── */
+.vs-root {
+  min-height: 100vh;
+  background: linear-gradient(160deg, #0d0b1e 0%, #1a0a2e 40%, #0a0f20 100%);
   display: flex;
   align-items: center;
-  gap: 0;
-  background: var(--bg3);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  justify-content: center;
+  position: relative;
   overflow: hidden;
-}
-.atm-info-item {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 10px 8px;
-  gap: 3px;
-}
-.atm-info-label { font-size: 0.65rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; }
-.atm-info-value { font-family: 'DM Mono', monospace; font-size: 1.1rem; font-weight: 700; color: var(--text); }
-.atm-info-divider { width: 1px; height: 36px; background: var(--border); flex-shrink: 0; }
-
-/* Fields */
-.atm-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.atm-field { display: flex; flex-direction: column; gap: 6px; }
-.atm-label { font-size: 0.78rem; color: var(--text-muted); font-weight: 500; }
-.atm-hint { font-size: 0.65rem; color: var(--text-dim); margin: 0; }
-.atm-input-row { display: flex; align-items: center; gap: 6px; }
-.atm-number-input { text-align: center; flex: 1; }
-.atm-stepper {
-  width: 32px; height: 36px;
-  border-radius: 6px;
-  background: var(--bg3);
-  border: 1px solid var(--border);
-  color: var(--text);
-  font-size: 1rem; font-weight: 700;
-  cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  transition: all 0.15s;
-  flex-shrink: 0;
-}
-.atm-stepper:hover { border-color: var(--accent); color: var(--accent); }
-
-/* Summary */
-.atm-summary {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  background: rgba(245,166,35,0.06);
-  border: 1px solid rgba(245,166,35,0.15);
-  border-radius: 8px;
-  padding: 10px 14px;
-  line-height: 1.5;
-}
-.atm-summary strong { color: var(--accent); }
-
-/* Actions */
-.atm-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  padding: 16px 24px;
-  background: var(--bg2);
-  border-top: 1px solid var(--border);
+  padding: 40px 20px;
 }
 
-/* Spinner */
-.atm-spinner {
-  display: inline-block;
-  width: 12px; height: 12px;
-  border: 2px solid rgba(0,0,0,0.2);
-  border-top-color: #000;
+.vs-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.vs-stars-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.vs-star {
+  position: absolute;
+  background: #fff;
   border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-  margin-right: 6px;
-  vertical-align: middle;
+  animation: vsTwinkle var(--d) ease-in-out infinite;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes vsTwinkle {
+  0%, 100% { opacity: 0.15; }
+  50%       { opacity: 0.9; }
+}
+
+.vs-confetti-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  overflow: hidden;
+}
+.vs-cf {
+  position: absolute;
+  top: -12px;
+  animation: vsCfFall linear forwards;
+}
+@keyframes vsCfFall {
+  to { transform: translateY(105vh) rotate(720deg); opacity: 0; }
+}
+
+/* ── Content ── */
+.vs-content {
+  position: relative;
+  z-index: 10;
+  text-align: center;
+  max-width: 500px;
+  width: 100%;
+}
+
+/* ── Full House Section ── */
+.vs-fullhouse-section {
+  animation: vsPopIn 0.7s cubic-bezier(0.17, 0.67, 0.37, 1.4) both;
+}
+@keyframes vsPopIn {
+  from { transform: scale(0.3); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+
+.vs-trophy-emoji {
+  font-size: 64px;
+  display: block;
+  animation: vsFloat 2.5s ease-in-out infinite;
+  margin-bottom: 8px;
+}
+@keyframes vsFloat {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-14px); }
+}
+
+.vs-full-title {
+  font-size: 2.4rem;
+  font-weight: 800;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, #f5a623, #ff6bce, #f5a623);
+  background-size: 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: vsShimmer 2.5s linear infinite;
+  margin-bottom: 16px;
+}
+@keyframes vsShimmer {
+  to { background-position: 200% center; }
+}
+
+/* ── Other category sections ── */
+.vs-section {
+  animation: vsSlideUp 0.6s ease both;
+  margin-top: 28px;
+}
+@keyframes vsSlideUp {
+  from { transform: translateY(30px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+.vs-line-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #f0e8ff;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.vs-line-emoji {
+  font-size: 1.2rem;
+}
+
+/* ── Winner Card ── */
+.vs-winner-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1.5px solid rgba(245, 166, 35, 0.35);
+  border-radius: 16px;
+  padding: 22px 28px;
+  margin: 16px auto 0;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 0 32px rgba(245, 166, 35, 0.12),
+              inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.vs-winner-label {
+  font-size: 0.72rem;
+  color: rgba(245, 166, 35, 0.75);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.vs-winner-name {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 0 20px rgba(245, 166, 35, 0.5);
+  margin-bottom: 4px;
+}
+
+/* ── Divider ── */
+.vs-divider {
+  width: 40px;
+  height: 2px;
+  background: rgba(245, 166, 35, 0.3);
+  margin: 20px auto;
+  border-radius: 2px;
+}
+
+/* ── End Card ── */
+.vs-end-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  padding: 20px 28px;
+  animation: vsSlideUp 0.6s 0.4s ease both;
+}
+
+.vs-end-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.8);
+  margin-bottom: 6px;
+}
+
+.vs-end-msg {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.45);
+  line-height: 1.7;
+}
+
+/* ── Past Winners Button ── */
+.vs-past-btn {
+  margin-top: 20px;
+  padding: 11px 28px;
+  background: rgba(245, 166, 35, 0.12);
+  border: 1px solid rgba(245, 166, 35, 0.4);
+  border-radius: 40px;
+  color: #f5a623;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  letter-spacing: 0.5px;
+  animation: vsSlideUp 0.6s 0.6s ease both;
+}
+.vs-past-btn:hover {
+  background: rgba(245, 166, 35, 0.22);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(245, 166, 35, 0.2);
+}
+
+.settings-field {
+  margin-bottom: 24px;
+}
+.settings-label {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
