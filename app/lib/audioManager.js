@@ -221,9 +221,8 @@ async function preloadNext() {
 }
 
 
-export function playAudioFilePriority(filename) {
+export function playAudioFilePriority(filename, onEnd) {
   if (typeof window === "undefined" || !unlocked) return;
-  // Remove any winner-lines.wav entries from the queue
   audioQueue = audioQueue.filter(item => !item.src.includes("winner-lines.wav"));
-  _enqueue(`/audio/${filename}`, null);
+  _enqueue(`/audio/${filename}`, onEnd);
 }
