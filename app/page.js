@@ -279,7 +279,7 @@ export default function GamePage() {
   function clearSelection() { setSelectedTickets([]); }
 
   const whatsappHref = selectedTickets.length
-    ? buildWhatsAppLink(selectedTickets, adminPhone)
+    ? buildWhatsAppLink(selectedTickets, adminPhone, bookingName.trim())
     : null;
 
   async function handleBookTickets() {
@@ -314,7 +314,7 @@ export default function GamePage() {
       }
       
       // Open WhatsApp with only the successfully booked tickets
-      const finalWhatsappHref = buildWhatsAppLink(result.booked, adminPhone);
+      const finalWhatsappHref = buildWhatsAppLink(result.booked, adminPhone, bookingName.trim());
       if (finalWhatsappHref) {
         window.open(finalWhatsappHref, '_blank', 'noopener,noreferrer');
       }

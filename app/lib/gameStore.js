@@ -251,10 +251,11 @@ export async function getAllPastGames() {
 }
 
 // ── WhatsApp helper ────────────────────────────────────────
-export function buildWhatsAppLink(ticketIds, adminPhone) {
+export function buildWhatsAppLink(ticketIds, adminPhone, userName = "") {
   const ids = Array.isArray(ticketIds) ? ticketIds : [ticketIds];
+  const nameIntro = userName ? `My name is ${userName}. ` : "";
   const msg = encodeURIComponent(
-    `Hi! I'd like to book Tambola ${ids.length > 1 ? "tickets" : "ticket"} ${ids.join(", ")} for today's game. Please confirm my booking.`
+    `Hi! ${nameIntro}I'd like to book Tambola ${ids.length > 1 ? "tickets" : "ticket"} ${ids.join(", ")} for today's game. Please confirm my booking.`
   );
   return `https://wa.me/${adminPhone}?text=${msg}`;
 }
