@@ -1,6 +1,6 @@
 import {
   doc, collection, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
-  onSnapshot, arrayUnion, writeBatch,
+  onSnapshot, arrayUnion, writeBatch, runTransaction
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { generateTickets } from "./tambola";
@@ -150,6 +150,51 @@ export async function bookMultipleTickets(gameId, ticketIds, { userName, userPho
   });
 
   await batch.commit();
+}
+
+export async function bookTicketsWithTransaction(gameId, ticketIds, { userName, userPhone }) {
+  const gameRef = doc(db, "games", gameId);
+  const bookedAt = Date.now();
+  
+  return await runTransaction(db, async (transaction) => {
+    const gameDoc = await transaction.get(gameRef);
+    if (!gameDoc.exists()) {
+      throw new Error("Game does not exist!");
+    }
+
+    const data = gameDoc.data();
+    const tickets = data.tickets || {};
+    
+    const alreadyBooked = [];
+    for (const ticketId of ticketIds) {
+      if (tickets[ticketId]?.status === "booked") {
+        alreadyBooked.push(ticketId);
+      }
+    }
+    
+    if (alreadyBooked.length > 0) {
+      // Throwing an error will abort the transaction
+      throw new Error(`Someone was faster! Ticket(s) ${alreadyBooked.join(", ")} are already booked.`);
+    }
+
+    const updates = {};
+    for (const id of ticketIds) {
+      updates[`tickets.${id}.status`]    = "booked";
+      updates[`tickets.${id}.userName`]  = userName;
+      updates[`tickets.${id}.userPhone`] = userPhone;
+      updates[`tickets.${id}.bookedAt`]  = bookedAt;
+    }
+    transaction.update(gameRef, updates);
+    
+    for (const ticketId of ticketIds) {
+      const bookingRef = doc(db, "bookings", `${gameId}_${ticketId}`);
+      transaction.set(bookingRef, {
+        gameId, ticketId, userName, userPhone, bookedAt, gameStatus: "waiting"
+      });
+    }
+    
+    return true;
+  });
 }
 
 // ── Release / unbook a ticket ──────────────────────────────

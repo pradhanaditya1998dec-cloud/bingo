@@ -7,6 +7,7 @@ import {
   subscribeTickets,
   buildWhatsAppLink,
   subscribeAdminSettings,
+  bookTicketsWithTransaction,
 } from "./lib/gameStore";
 import { formatGameId, reconstructGrid } from "./lib/tambola";
 import { announceNumber, preloadAudio, initAudio, playGameStartCountdown, playAudioFile, playAudioFileLooping, stopLoopingAudio, playAudioFilePriority } from "./lib/audioManager";
@@ -37,6 +38,10 @@ export default function GamePage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeModal, setActiveModal] = useState(null); // 'rules' | 'winners' | null
   const [toast, setToast] = useState(null);
+
+  const [bookingName, setBookingName] = useState("");
+  const [isBooking, setIsBooking] = useState(false);
+  const [nameError, setNameError] = useState(false);
 
   const countdownRef = useRef(null);
   const prevWinnersRef = useRef(null);
@@ -242,24 +247,24 @@ export default function GamePage() {
     // }
 
     if (changedTypes.includes("fullHouse")) {
-        playAudioFilePriority("bingo.mp3", () => {
-          playAudioFileLooping("outro.wav");
-        });
-      } else {
-        playAudioFile("winner-lines.wav");
-      }
+      playAudioFilePriority("bingo.mp3", () => {
+        playAudioFileLooping("outro.wav");
+      });
+    } else {
+      playAudioFile("winner-lines.wav");
+    }
 
-      // Show toast — prioritise fullHouse if it's among the changed types
-      const toastType = changedTypes.includes("fullHouse") ? "fullHouse" : changedTypes[0];
-      const w = currentWinners[toastType];
-      const winners = Array.isArray(w) ? w : w ? [w] : [];
+    // Show toast — prioritise fullHouse if it's among the changed types
+    const toastType = changedTypes.includes("fullHouse") ? "fullHouse" : changedTypes[0];
+    const w = currentWinners[toastType];
+    const winners = Array.isArray(w) ? w : w ? [w] : [];
 
-      if (winners.length) {
-        const label = winLabels[toastType] || toastType;
-        const names = winners.map((w) => w.userName).join(" & ");
-        setToast({ id: Date.now(), user: names, label, tied: winners.length > 1 });
-        setTimeout(() => setToast(null), 10000);
-      }
+    if (winners.length) {
+      const label = winLabels[toastType] || toastType;
+      const names = winners.map((w) => w.userName).join(" & ");
+      setToast({ id: Date.now(), user: names, label, tied: winners.length > 1 });
+      setTimeout(() => setToast(null), 10000);
+    }
 
   }, [game?.winners]);
 
@@ -273,9 +278,46 @@ export default function GamePage() {
   }
   function clearSelection() { setSelectedTickets([]); }
 
- const whatsappHref = selectedTickets.length
-  ? buildWhatsAppLink(selectedTickets, adminPhone)
-  : null;
+  const whatsappHref = selectedTickets.length
+    ? buildWhatsAppLink(selectedTickets, adminPhone)
+    : null;
+
+  async function handleBookTickets() {
+    if (!bookingName.trim()) {
+      setNameError(true);
+      setTimeout(() => setNameError(false), 500);
+      return;
+    }
+
+    setIsBooking(true);
+    try {
+      const generatedNumber = "ID-" + Math.floor(100000 + Math.random() * 900000);
+      await bookTicketsWithTransaction(gameId, selectedTickets, {
+        userName: bookingName.trim(),
+        userPhone: generatedNumber
+      });
+
+      // Success
+      clearSelection();
+      setToast({ id: Date.now(), user: "Success", label: "Tickets booked successfully!", isError: false });
+      setTimeout(() => setToast(null), 3000);
+
+      // Open WhatsApp
+      if (whatsappHref) {
+        window.open(whatsappHref, '_blank', 'noopener,noreferrer');
+      }
+    } catch (err) {
+      console.error("Booking error:", err);
+      // Error like "Someone was faster"
+      setToast({ id: Date.now(), user: "Oops!", label: "Someone was faster than you.. please select some other ticket.", isError: true });
+      setTimeout(() => setToast(null), 5000);
+
+      // Clear selection so they can pick again
+      clearSelection();
+    } finally {
+      setIsBooking(false);
+    }
+  }
 
   function formatTime(ts) {
     return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -320,16 +362,30 @@ export default function GamePage() {
   // ── Render ────────────────────────────────────────────────────────────
   return (
     <div className="page">
+      <style>{`
+        @keyframes shake {
+          0%, 100% { transform: translateX(0); }
+          25% { transform: translateX(-5px); }
+          75% { transform: translateX(5px); }
+        }
+        .input-error-shake {
+          animation: shake 0.3s ease-in-out;
+        }
+      `}</style>
+      
       {/* Floating Winner Toast */}
       {toast && (
-        <div key={toast.id} className="winner-toast">
+        <div key={toast.id} className="winner-toast" style={toast.isError ? { backgroundColor: '#ff4444' } : {}}>
           <div className="toast-content">
-            <span className="toast-icon">🎉</span>
+            <span className="toast-icon">{toast.isError ? "⚠️" : (toast.user === "Success" ? "✅" : "🎉")}</span>
             <span className="toast-message">
-              {toast.tied
-                ? <>It's a tie! <strong>{toast.user}</strong> both completed {toast.label}!</>
-                : <>Congratulations <strong>{toast.user}</strong>! You have completed {toast.label}.</>
-              }
+              {toast.tied !== undefined ? (
+                toast.tied
+                  ? <>It's a tie! <strong>{toast.user}</strong> both completed {toast.label}!</>
+                  : <>Congratulations <strong>{toast.user}</strong>! You have completed {toast.label}.</>
+              ) : (
+                <>{toast.label}</>
+              )}
             </span>
           </div>
         </div>
@@ -391,21 +447,44 @@ export default function GamePage() {
 
       {/* Floating multi-select booking bar */}
       {selectedTickets.length > 0 && (
-        <div className="booking-bar">
+        <div className="booking-bar" style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
           <div className="booking-bar-info">
             <span className="booking-bar-count">
               {selectedTickets.length} ticket{selectedTickets.length > 1 ? "s" : ""} selected
             </span>
             <span className="booking-bar-ids">{selectedTickets.join(", ")}</span>
           </div>
+
+          <div className="booking-bar-inputs" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%' }}>
+            <input
+              type="text"
+              placeholder="Your Name *"
+              value={bookingName}
+              onChange={(e) => {
+                setBookingName(e.target.value);
+                if (nameError) setNameError(false);
+              }}
+              className={`booking-input ${nameError ? "input-error-shake" : ""}`}
+              style={{ 
+                padding: '6px 12px', 
+                width: '100%', 
+                borderRadius: '4px', 
+                border: nameError ? '2px solid #ff4444' : 'none', 
+                outline: 'none',
+                transition: 'border 0.2s'
+              }}
+              required
+            />
+          </div>
+
           <div className="booking-bar-actions">
             <button onClick={clearSelection} className="booking-bar-clear">✕ Clear</button>
-            <a href={whatsappHref} target="_blank" rel="noreferrer" className="booking-bar-wa">
+            <button onClick={handleBookTickets} disabled={isBooking} className="booking-bar-wa" style={{ border: 'none', cursor: 'pointer' }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
               </svg>
-              Book via WhatsApp
-            </a>
+              {isBooking ? 'Booking...' : 'Book via WhatsApp'}
+            </button>
           </div>
         </div>
       )}
@@ -431,7 +510,7 @@ export default function GamePage() {
         //         ? Array.isArray(game.winners[key]) ? game.winners[key] : [game.winners[key]]
         //         : [];
         //       if (categoryWinners.length === 0) return null;
-              
+
         //       return (
         //         <div key={key} className="victory-section" style={{ marginTop: key === 'fullHouse' ? '0' : '40px' }}>
         //           <div className="victory-emoji" style={{ fontSize: key === 'fullHouse' ? '2.5rem' : '2rem' }}>{emoji}</div>
@@ -632,20 +711,20 @@ function VictoryScreen({ game, tickets, setActiveModal }) {
       const s = document.createElement('div');
       s.className = 'vs-star';
       const sz = Math.random() * 2.5 + 0.5;
-      s.style.cssText = `width:${sz}px;height:${sz}px;left:${Math.random()*100}%;top:${Math.random()*100}%;--d:${(Math.random()*3+1.5).toFixed(1)}s;animation-delay:${(Math.random()*4).toFixed(1)}s`;
+      s.style.cssText = `width:${sz}px;height:${sz}px;left:${Math.random() * 100}%;top:${Math.random() * 100}%;--d:${(Math.random() * 3 + 1.5).toFixed(1)}s;animation-delay:${(Math.random() * 4).toFixed(1)}s`;
       starsLayer.appendChild(s);
     }
 
     // ── Confetti ──
     const confettiLayer = document.getElementById('confettiLayer');
-    const cfColors = ['#f5a623','#ff6b6b','#6bffce','#ce6bff','#6baeff','#fff56b'];
+    const cfColors = ['#f5a623', '#ff6b6b', '#6bffce', '#ce6bff', '#6baeff', '#fff56b'];
     const intervals = [];
 
     function spawnConfetti() {
       const c = document.createElement('div');
       c.className = 'vs-cf';
       const dur = (Math.random() * 3 + 2.5).toFixed(1);
-      c.style.cssText = `left:${Math.random()*100}%;background:${cfColors[Math.floor(Math.random()*cfColors.length)]};width:${Math.random()*8+5}px;height:${Math.random()*8+5}px;border-radius:${Math.random()>0.5?'50%':'2px'};animation:vsCfFall ${dur}s 0s linear forwards`;
+      c.style.cssText = `left:${Math.random() * 100}%;background:${cfColors[Math.floor(Math.random() * cfColors.length)]};width:${Math.random() * 8 + 5}px;height:${Math.random() * 8 + 5}px;border-radius:${Math.random() > 0.5 ? '50%' : '2px'};animation:vsCfFall ${dur}s 0s linear forwards`;
       confettiLayer.appendChild(c);
       setTimeout(() => c.remove(), parseFloat(dur) * 1000 + 200);
     }
@@ -666,7 +745,7 @@ function VictoryScreen({ game, tickets, setActiveModal }) {
     resize();
     window.addEventListener('resize', resize);
 
-    const PALETTE = ['#f5a623','#ff6b6b','#ff6bce','#6bffce','#6baeff','#ce6bff','#fff','#ffec6b','#6bff8e'];
+    const PALETTE = ['#f5a623', '#ff6b6b', '#ff6bce', '#6bffce', '#6baeff', '#ce6bff', '#fff', '#ffec6b', '#6bff8e'];
     const fwList = [];
 
     function Firework(x, y) {
@@ -676,12 +755,12 @@ function VictoryScreen({ game, tickets, setActiveModal }) {
       for (let i = 0; i < count; i++) {
         const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.3;
         const speed = 1.8 + Math.random() * 4.5;
-        this.particles.push({ x, y, vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed, life: 1, decay: 0.012 + Math.random()*0.016, size: 2 + Math.random()*2.5, trail: [] });
+        this.particles.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: 1, decay: 0.012 + Math.random() * 0.016, size: 2 + Math.random() * 2.5, trail: [] });
       }
     }
-    Firework.prototype.update = function() {
+    Firework.prototype.update = function () {
       this.particles.forEach(p => {
-        p.trail.push({x:p.x,y:p.y});
+        p.trail.push({ x: p.x, y: p.y });
         if (p.trail.length > 5) p.trail.shift();
         p.x += p.vx; p.y += p.vy;
         p.vy += 0.065; p.vx *= 0.97;
@@ -689,38 +768,38 @@ function VictoryScreen({ game, tickets, setActiveModal }) {
       });
       this.particles = this.particles.filter(p => p.life > 0);
     };
-    Firework.prototype.draw = function() {
+    Firework.prototype.draw = function () {
       this.particles.forEach(p => {
         ctx.save();
         for (let t = 0; t < p.trail.length - 1; t++) {
           ctx.beginPath();
           ctx.moveTo(p.trail[t].x, p.trail[t].y);
-          ctx.lineTo(p.trail[t+1].x, p.trail[t+1].y);
+          ctx.lineTo(p.trail[t + 1].x, p.trail[t + 1].y);
           ctx.strokeStyle = this.color;
           ctx.globalAlpha = (t / p.trail.length) * p.life * 0.4;
           ctx.lineWidth = p.size * 0.5;
           ctx.stroke();
         }
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI*2);
+        ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
         ctx.fillStyle = this.color;
         ctx.globalAlpha = p.life;
         ctx.fill();
         ctx.restore();
       });
     };
-    Firework.prototype.done = function() { return this.particles.length === 0; };
+    Firework.prototype.done = function () { return this.particles.length === 0; };
 
     let lastLaunch = 0;
     function animate(ts) {
       animId = requestAnimationFrame(animate);
       ctx.fillStyle = 'rgba(10,8,22,0.18)';
       ctx.fillRect(0, 0, W, H);
-      if (ts - lastLaunch > 380 + Math.random()*500) {
-        const x = W*0.15 + Math.random()*W*0.7;
-        const y = H*0.05 + Math.random()*H*0.55;
+      if (ts - lastLaunch > 380 + Math.random() * 500) {
+        const x = W * 0.15 + Math.random() * W * 0.7;
+        const y = H * 0.05 + Math.random() * H * 0.55;
         fwList.push(new Firework(x, y));
-        if (Math.random() > 0.55) fwList.push(new Firework(W*0.15 + Math.random()*W*0.7, H*0.05 + Math.random()*H*0.55));
+        if (Math.random() > 0.55) fwList.push(new Firework(W * 0.15 + Math.random() * W * 0.7, H * 0.05 + Math.random() * H * 0.55));
         lastLaunch = ts;
       }
       for (let i = fwList.length - 1; i >= 0; i--) {
@@ -739,10 +818,10 @@ function VictoryScreen({ game, tickets, setActiveModal }) {
 
   const categories = [
     { key: 'fullHouse', title: 'FULL HOUSE!', emoji: '🎉🏆🏆🎉', label: 'Full House Winner' },
-    { key: 'topLine',   title: 'TOP LINE',    emoji: '🎯', label: 'Top Line Winner' },
-    { key: 'middleLine',title: 'MIDDLE LINE', emoji: '🎯', label: 'Middle Line Winner' },
-    { key: 'lastLine',  title: 'LAST LINE',   emoji: '🎯', label: 'Last Line Winner' },
-    { key: 'quickSeven',title: 'QUICK 7',     emoji: '⚡', label: 'Quick 7 Winner' },
+    { key: 'topLine', title: 'TOP LINE', emoji: '🎯', label: 'Top Line Winner' },
+    { key: 'middleLine', title: 'MIDDLE LINE', emoji: '🎯', label: 'Middle Line Winner' },
+    { key: 'lastLine', title: 'LAST LINE', emoji: '🎯', label: 'Last Line Winner' },
+    { key: 'quickSeven', title: 'QUICK 7', emoji: '⚡', label: 'Quick 7 Winner' },
   ];
 
   return (

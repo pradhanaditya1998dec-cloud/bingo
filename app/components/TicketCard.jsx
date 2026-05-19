@@ -35,11 +35,7 @@ export default function TicketCard({
         } ${isSelected ? "selected-ticket" : ""} ${staticDisplay ? "static-display" : ""}`}
       onClick={handleCardClick}
     >
-      {/* Selection indicator */}
-      {/* {isSelected && (
-        <div className="select-check">✓</div>
-      )} */}
-
+    
       {/* Header */}
       <div className="ticket-header">
         <span className="ticket-id">{ticket.id} {isBooked && <span className="ticket-badge booked-badge ">Booked ✓</span>}</span>
