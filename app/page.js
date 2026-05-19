@@ -296,15 +296,15 @@ export default function GamePage() {
         userName: bookingName.trim(),
         userPhone: generatedNumber
       });
-      
+
       clearSelection();
 
       if (result.failed && result.failed.length > 0) {
-        setToast({ 
-          id: Date.now(), 
-          user: "Partial Booking", 
-          label: `Ticket(s) ${result.booked.join(", ")} were successfully booked. However, ${result.failed.join(", ")} was taken by someone else just before you!`, 
-          isWarning: true 
+        setToast({
+          id: Date.now(),
+          user: "Partial Booking",
+          label: `Ticket(s) ${result.booked.join(", ")} were successfully booked. However, ${result.failed.join(", ")} was taken by someone else just before you!`,
+          isWarning: true
         });
         setTimeout(() => setToast(null), 8000);
       } else {
@@ -312,7 +312,7 @@ export default function GamePage() {
         setToast({ id: Date.now(), user: "Success", label: "Tickets booked successfully!", isError: false });
         setTimeout(() => setToast(null), 3000);
       }
-      
+
       // Open WhatsApp with only the successfully booked tickets
       const finalWhatsappHref = buildWhatsAppLink(result.booked, adminPhone, bookingName.trim());
       if (finalWhatsappHref) {
@@ -320,12 +320,18 @@ export default function GamePage() {
       }
     } catch (err) {
       console.error("Booking error:", err);
-      // Error like "Someone was faster"
-      setToast({ id: Date.now(), user: "Oops!", label: "Someone was faster than you.. please select some other ticket.", isError: true });
-      setTimeout(() => setToast(null), 5000);
 
-      // Clear selection so they can pick again
-      clearSelection();
+      if (err.code === "ALL_TICKETS_BOOKED") {
+        // Every ticket in the selection was already taken
+        setToast({ id: Date.now(), user: "Oops!", label: "Someone was faster than you.. please select some other ticket.", isError: true });
+        setTimeout(() => setToast(null), 5000);
+        clearSelection();
+      } else {
+        // Generic Firestore / network error — don't blame the user
+        setToast({ id: Date.now(), user: "Error", label: "Booking failed due to a connection issue. Please try again.", isError: true });
+        setTimeout(() => setToast(null), 5000);
+        // Don't clear selection so they can retry the same tickets
+      }
     } finally {
       setIsBooking(false);
     }
@@ -384,33 +390,33 @@ export default function GamePage() {
           animation: shake 0.3s ease-in-out;
         }
       `}</style>
-      
+
       {/* Floating Winner Toast */}
       {toast && (
-        <div 
-          key={toast.id} 
-          className="winner-toast" 
+        <div
+          key={toast.id}
+          className="winner-toast"
           style={
-            toast.isError 
-              ? { 
-                  background: 'linear-gradient(135deg, #ff5e62 0%, #ff9966 100%)',
-                  boxShadow: '0 10px 25px -5px rgba(255, 94, 98, 0.5)',
+            toast.isError
+              ? {
+                background: 'linear-gradient(135deg, #ff5e62 0%, #ff9966 100%)',
+                boxShadow: '0 10px 25px -5px rgba(255, 94, 98, 0.5)',
+                border: '2px solid rgba(255,255,255,0.3)',
+                color: '#fff',
+                borderRadius: '16px',
+                padding: '16px 24px',
+                maxWidth: '400px'
+              }
+              : toast.isWarning
+                ? {
+                  background: 'linear-gradient(135deg, #f6d365 0%, #fda085 100%)',
+                  boxShadow: '0 10px 25px -5px rgba(253, 160, 133, 0.5)',
                   border: '2px solid rgba(255,255,255,0.3)',
                   color: '#fff',
                   borderRadius: '16px',
                   padding: '16px 24px',
                   maxWidth: '400px'
-                } 
-              : toast.isWarning
-                ? {
-                    background: 'linear-gradient(135deg, #f6d365 0%, #fda085 100%)',
-                    boxShadow: '0 10px 25px -5px rgba(253, 160, 133, 0.5)',
-                    border: '2px solid rgba(255,255,255,0.3)',
-                    color: '#fff',
-                    borderRadius: '16px',
-                    padding: '16px 24px',
-                    maxWidth: '400px'
-                  }
+                }
                 : {}
           }
         >
@@ -508,11 +514,11 @@ export default function GamePage() {
                 if (nameError) setNameError(false);
               }}
               className={`booking-input ${nameError ? "input-error-shake" : ""}`}
-              style={{ 
-                padding: '6px 12px', 
-                width: '100%', 
-                borderRadius: '4px', 
-                border: nameError ? '2px solid #ff4444' : 'none', 
+              style={{
+                padding: '6px 12px',
+                width: '100%',
+                borderRadius: '4px',
+                border: nameError ? '2px solid #ff4444' : 'none',
                 outline: 'none',
                 transition: 'border 0.2s'
               }}

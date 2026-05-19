@@ -177,8 +177,12 @@ export async function bookTicketsWithTransaction(gameId, ticketIds, { userName, 
     }
     
     if (availableTickets.length === 0) {
-      // Throwing an error will abort the transaction
-      throw new Error(`Someone was faster! Ticket(s) ${alreadyBooked.join(", ")} are already booked.`);
+      // All requested tickets are already taken — use a tagged error so the
+      // caller can distinguish this from a generic Firestore failure
+      const err = new Error(`All tickets already booked: ${alreadyBooked.join(", ")}`);
+      err.code = "ALL_TICKETS_BOOKED";
+      err.alreadyBooked = alreadyBooked;
+      throw err;
     }
 
     const updates = {};
