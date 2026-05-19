@@ -204,7 +204,7 @@ export default function AdminPage() {
         })));
 
         // Play winner.wav simultaneously with any ongoing number announcement
-        // playWinnerSound();
+        playWinnerSound();
 
         // Toast for each winner
         winners.forEach(t => success(`🎉 ${WIN_LABELS[type]}: ${t.userName} (${t.id})`));

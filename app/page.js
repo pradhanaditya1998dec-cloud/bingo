@@ -159,14 +159,16 @@ export default function GamePage() {
       stopLoopingAudio();
     }
 
-    if (curr === "closed" && prev !== "closed" && prev !== null) {
-      // Set a flag so the next announceNumber call picks it up
-      outroTimerRef.current = setTimeout(() => {
-        // Fallback — if no number is announced after closing,
-        // start outro directly after a safe delay
-        playAudioFileLooping("outro.wav");
-      }, 8000); // generous fallback in case no number was queued
-    }
+    // if (curr === "closed" && prev !== "closed" && prev !== null) {
+    //   // Only set fallback if fullHouse wasn't already won
+    //   // (if it was, the bingo onEnd callback handles the outro)
+    //   const hasFullHouse = !!game?.winners?.fullHouse;
+    //   if (!hasFullHouse) {
+    //     outroTimerRef.current = setTimeout(() => {
+    //       playAudioFileLooping("outro.wav");
+    //     }, 8000);
+    //   }
+    // }
 
     prevStatusRef.current = curr;
     return () => clearTimeout(outroTimerRef.current);
@@ -233,11 +235,19 @@ export default function GamePage() {
     if (game.status === "closed") return;
 
     // If fullHouse is among the winners (even alongside others), play bingo
+    // if (changedTypes.includes("fullHouse")) {
+    //  playAudioFilePriority("bingo.mp3");
+    // } else {
+    //   playAudioFile("winner-lines.wav");
+    // }
+
     if (changedTypes.includes("fullHouse")) {
-     playAudioFilePriority("bingo.mp3");
-    } else {
-      playAudioFile("winner-lines.wav");
-    }
+        playAudioFilePriority("bingo.mp3", () => {
+          playAudioFileLooping("outro.wav");
+        });
+      } else {
+        playAudioFile("winner-lines.wav");
+      }
 
       // Show toast — prioritise fullHouse if it's among the changed types
       const toastType = changedTypes.includes("fullHouse") ? "fullHouse" : changedTypes[0];
