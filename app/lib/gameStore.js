@@ -166,19 +166,23 @@ export async function bookTicketsWithTransaction(gameId, ticketIds, { userName, 
     const tickets = data.tickets || {};
     
     const alreadyBooked = [];
+    const availableTickets = [];
+    
     for (const ticketId of ticketIds) {
       if (tickets[ticketId]?.status === "booked") {
         alreadyBooked.push(ticketId);
+      } else {
+        availableTickets.push(ticketId);
       }
     }
     
-    if (alreadyBooked.length > 0) {
+    if (availableTickets.length === 0) {
       // Throwing an error will abort the transaction
       throw new Error(`Someone was faster! Ticket(s) ${alreadyBooked.join(", ")} are already booked.`);
     }
 
     const updates = {};
-    for (const id of ticketIds) {
+    for (const id of availableTickets) {
       updates[`tickets.${id}.status`]    = "booked";
       updates[`tickets.${id}.userName`]  = userName;
       updates[`tickets.${id}.userPhone`] = userPhone;
@@ -186,14 +190,14 @@ export async function bookTicketsWithTransaction(gameId, ticketIds, { userName, 
     }
     transaction.update(gameRef, updates);
     
-    for (const ticketId of ticketIds) {
+    for (const ticketId of availableTickets) {
       const bookingRef = doc(db, "bookings", `${gameId}_${ticketId}`);
       transaction.set(bookingRef, {
         gameId, ticketId, userName, userPhone, bookedAt, gameStatus: "waiting"
       });
     }
     
-    return true;
+    return { booked: availableTickets, failed: alreadyBooked };
   });
 }
 

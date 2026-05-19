@@ -292,19 +292,31 @@ export default function GamePage() {
     setIsBooking(true);
     try {
       const generatedNumber = "ID-" + Math.floor(100000 + Math.random() * 900000);
-      await bookTicketsWithTransaction(gameId, selectedTickets, {
+      const result = await bookTicketsWithTransaction(gameId, selectedTickets, {
         userName: bookingName.trim(),
         userPhone: generatedNumber
       });
-
-      // Success
+      
       clearSelection();
-      setToast({ id: Date.now(), user: "Success", label: "Tickets booked successfully!", isError: false });
-      setTimeout(() => setToast(null), 3000);
 
-      // Open WhatsApp
-      if (whatsappHref) {
-        window.open(whatsappHref, '_blank', 'noopener,noreferrer');
+      if (result.failed && result.failed.length > 0) {
+        setToast({ 
+          id: Date.now(), 
+          user: "Partial Booking", 
+          label: `Ticket(s) ${result.booked.join(", ")} were successfully booked. However, ${result.failed.join(", ")} was taken by someone else just before you!`, 
+          isWarning: true 
+        });
+        setTimeout(() => setToast(null), 8000);
+      } else {
+        // Success
+        setToast({ id: Date.now(), user: "Success", label: "Tickets booked successfully!", isError: false });
+        setTimeout(() => setToast(null), 3000);
+      }
+      
+      // Open WhatsApp with only the successfully booked tickets
+      const finalWhatsappHref = buildWhatsAppLink(result.booked, adminPhone);
+      if (finalWhatsappHref) {
+        window.open(finalWhatsappHref, '_blank', 'noopener,noreferrer');
       }
     } catch (err) {
       console.error("Booking error:", err);
@@ -375,18 +387,49 @@ export default function GamePage() {
       
       {/* Floating Winner Toast */}
       {toast && (
-        <div key={toast.id} className="winner-toast" style={toast.isError ? { backgroundColor: '#ff4444' } : {}}>
-          <div className="toast-content">
-            <span className="toast-icon">{toast.isError ? "⚠️" : (toast.user === "Success" ? "✅" : "🎉")}</span>
-            <span className="toast-message">
-              {toast.tied !== undefined ? (
-                toast.tied
-                  ? <>It's a tie! <strong>{toast.user}</strong> both completed {toast.label}!</>
-                  : <>Congratulations <strong>{toast.user}</strong>! You have completed {toast.label}.</>
-              ) : (
-                <>{toast.label}</>
-              )}
+        <div 
+          key={toast.id} 
+          className="winner-toast" 
+          style={
+            toast.isError 
+              ? { 
+                  background: 'linear-gradient(135deg, #ff5e62 0%, #ff9966 100%)',
+                  boxShadow: '0 10px 25px -5px rgba(255, 94, 98, 0.5)',
+                  border: '2px solid rgba(255,255,255,0.3)',
+                  color: '#fff',
+                  borderRadius: '16px',
+                  padding: '16px 24px',
+                  maxWidth: '400px'
+                } 
+              : toast.isWarning
+                ? {
+                    background: 'linear-gradient(135deg, #f6d365 0%, #fda085 100%)',
+                    boxShadow: '0 10px 25px -5px rgba(253, 160, 133, 0.5)',
+                    border: '2px solid rgba(255,255,255,0.3)',
+                    color: '#fff',
+                    borderRadius: '16px',
+                    padding: '16px 24px',
+                    maxWidth: '400px'
+                  }
+                : {}
+          }
+        >
+          <div className="toast-content" style={(toast.isError || toast.isWarning) ? { display: 'flex', alignItems: 'center', gap: '16px' } : {}}>
+            <span className="toast-icon" style={(toast.isError || toast.isWarning) ? { fontSize: '2.5rem' } : {}}>
+              {toast.isError ? "🏃💨" : toast.isWarning ? "⚠️" : (toast.user === "Success" ? "✅" : "🎉")}
             </span>
+            <div style={(toast.isError || toast.isWarning) ? { display: 'flex', flexDirection: 'column', gap: '4px', textAlign: 'left' } : {}}>
+              {(toast.isError || toast.isWarning) && <strong style={{ fontSize: '1.2rem', textShadow: '0 2px 4px rgba(0,0,0,0.2)' }}>{toast.user}</strong>}
+              <span className="toast-message" style={(toast.isError || toast.isWarning) ? { fontSize: '1rem', opacity: 0.95, lineHeight: 1.4 } : {}}>
+                {toast.tied !== undefined ? (
+                  toast.tied
+                    ? <>It's a tie! <strong>{toast.user}</strong> both completed {toast.label}!</>
+                    : <>Congratulations <strong>{toast.user}</strong>! You have completed {toast.label}.</>
+                ) : (
+                  <>{toast.label}</>
+                )}
+              </span>
+            </div>
           </div>
         </div>
       )}
