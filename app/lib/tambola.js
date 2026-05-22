@@ -339,11 +339,16 @@ export function checkWinners(flatNumbers, calledNumbers) {
   const middleLine = checkRow(grid[1]);
   const lastLine   = checkRow(grid[2]);
 
+  const firstRow = grid[0].filter(n => n !== 0);
+  const lastRow = grid[2].filter(n => n !== 0);
+  const corners = [firstRow[0], firstRow[firstRow.length - 1], lastRow[0], lastRow[lastRow.length - 1]]
+    .every(n => called.has(n));
+
   // Quick 7: at least 7 numbers on this ticket have been called
   const allNums = flatNumbers.filter(n => n !== 0);
   const quickSeven = allNums.filter(n => called.has(n)).length >= 7;
 
-  return { topLine, middleLine, lastLine, quickSeven, fullHouse: topLine && middleLine && lastLine };
+  return { topLine, middleLine, lastLine, corners, quickSeven, fullHouse: topLine && middleLine && lastLine };
 }
 
 export function generateGameId() {
@@ -381,11 +386,12 @@ export function getTodayGameId() {
 
 export { announceNumber, preloadAudio, initAudio } from "./audioManager";
 
-export const WIN_TYPES = ["topLine", "middleLine", "lastLine", "quickSeven", "fullHouse"];
+export const WIN_TYPES = ["topLine", "middleLine", "lastLine", "corners", "quickSeven", "fullHouse"];
 export const WIN_LABELS = {
   topLine:    "🎯 Top Line",
   middleLine: "🎯 Middle Line",
   lastLine:   "🎯 Last Line",
+  corners:    "🔶 Corners",
   quickSeven: "⚡ Quick 7",
   fullHouse:  "🏆 Full House",
 };

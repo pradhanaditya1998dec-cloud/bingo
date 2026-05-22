@@ -10,7 +10,7 @@ import {
   bookTicketsWithTransaction,
 } from "./lib/gameStore";
 import { formatGameId, reconstructGrid } from "./lib/tambola";
-import { announceNumber, preloadAudio, initAudio, playGameStartCountdown, playAudioFile, playAudioFileLooping, stopLoopingAudio, playAudioFilePriority } from "./lib/audioManager";
+import { announceNumber, preloadAudio, initAudio, playGameStartCountdown, playAudioFileLooping, playWinnerSound, stopLoopingAudio } from "./lib/audioManager";
 import TicketCard from "./components/TicketCard";
 import NumberBoard from "./components/NumberBoard";
 import WinnersPanel from "./components/WinnersPanel";
@@ -38,6 +38,7 @@ export default function GamePage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeModal, setActiveModal] = useState(null); // 'rules' | 'winners' | null
   const [toast, setToast] = useState(null);
+  const [showVictoryScreen, setShowVictoryScreen] = useState(true);
 
   const [bookingName, setBookingName] = useState("");
   const [isBooking, setIsBooking] = useState(false);
@@ -47,6 +48,9 @@ export default function GamePage() {
   const prevWinnersRef = useRef(null);
   const prevCalled = useRef([]);
   const isInitialLoad = useRef(true);
+  const toastTimerRef = useRef(null);
+  const fullHouseAudioTimerRef = useRef(null);
+  const fullHouseVictoryTimerRef = useRef(null);
 
   // Unsubscribe refs — cleaned up when gameId changes
   const unsubGameRef = useRef(null);
@@ -62,6 +66,12 @@ export default function GamePage() {
       if (s.adminPhone) setAdminPhone(s.adminPhone);
     });
   }, []);
+
+  function showTimedToast(nextToast, duration = 10000) {
+    clearTimeout(toastTimerRef.current);
+    setToast(nextToast);
+    toastTimerRef.current = setTimeout(() => setToast(null), duration);
+  }
 
   // ── Step 1: subscribe to the active game pointer ──────────────────────
   useEffect(() => {
@@ -90,6 +100,7 @@ export default function GamePage() {
     setSelectedTickets([]);
     prevCalled.current = [];
     isInitialLoad.current = true;
+    setShowVictoryScreen(true);
     setLoading(true);
 
     unsubGameRef.current = subscribeGame(gameId, (data) => {
@@ -153,6 +164,7 @@ export default function GamePage() {
   // ── Game-start countdown + outro loop ───────────────────────────────
   const prevStatusRef = useRef(null);
   const outroTimerRef = useRef(null);
+  const hasFullHouseWinner = !!game?.winners?.fullHouse;
 
   useEffect(() => {
     const prev = prevStatusRef.current;
@@ -161,7 +173,22 @@ export default function GamePage() {
     // Leaving "closed" — cancel pending outro + kill loop
     if (prev === "closed" && curr !== "closed") {
       clearTimeout(outroTimerRef.current);
+      clearTimeout(fullHouseAudioTimerRef.current);
+      clearTimeout(fullHouseVictoryTimerRef.current);
+      setShowVictoryScreen(true);
       stopLoopingAudio();
+    }
+
+    if (curr === "closed" && prev !== "closed") {
+      if (hasFullHouseWinner && prev !== null) {
+        setShowVictoryScreen(false);
+        clearTimeout(fullHouseVictoryTimerRef.current);
+        fullHouseVictoryTimerRef.current = setTimeout(() => {
+          setShowVictoryScreen(true);
+        }, 8000);
+      } else {
+        setShowVictoryScreen(true);
+      }
     }
 
     // if (curr === "closed" && prev !== "closed" && prev !== null) {
@@ -176,8 +203,11 @@ export default function GamePage() {
     // }
 
     prevStatusRef.current = curr;
-    return () => clearTimeout(outroTimerRef.current);
-  }, [game?.status]);
+    return () => {
+      clearTimeout(outroTimerRef.current);
+      clearTimeout(fullHouseVictoryTimerRef.current);
+    };
+  }, [game?.status, hasFullHouseWinner]);
 
 
 
@@ -194,14 +224,18 @@ export default function GamePage() {
     // only AFTER the last number finishes speaking
     if (game.status === "closed") {
       clearTimeout(outroTimerRef.current); // cancel the fallback timer
-      announceNumber(newNums[newNums.length - 1], () => {
-        playAudioFileLooping("outro.wav");
-      });
+      if (hasFullHouseWinner) {
+        announceNumber(newNums[newNums.length - 1]);
+      } else {
+        announceNumber(newNums[newNums.length - 1], () => {
+          playAudioFileLooping("outro.wav");
+        });
+      }
       return;
     }
 
     announceNumber(newNums[newNums.length - 1]);
-  }, [game?.calledNumbers, game?.status]);
+  }, [game?.calledNumbers, game?.status, hasFullHouseWinner]);
 
 
   // ── Winner toast + sound — watches winners independently ─────────────
@@ -218,6 +252,7 @@ export default function GamePage() {
       topLine: "the Top Line",
       middleLine: "the Middle Line",
       lastLine: "the Last Line",
+      corners: "the Corners",
       quickSeven: "Quick 7",
       fullHouse: "a Full House",
     };
@@ -247,23 +282,38 @@ export default function GamePage() {
     // }
 
     if (changedTypes.includes("fullHouse")) {
-      playAudioFilePriority("bingo.mp3", () => {
-        playAudioFileLooping("outro.wav");
-      });
+      clearTimeout(fullHouseAudioTimerRef.current);
+      fullHouseAudioTimerRef.current = setTimeout(() => {
+        playWinnerSound("bingo.mp3", () => {
+          playAudioFileLooping("outro.wav");
+        });
+      }, 8000);
     } else {
-      playAudioFile("winner-lines.wav");
+      playWinnerSound();
     }
 
     // Show toast — prioritise fullHouse if it's among the changed types
-    const toastType = changedTypes.includes("fullHouse") ? "fullHouse" : changedTypes[0];
-    const w = currentWinners[toastType];
-    const winners = Array.isArray(w) ? w : w ? [w] : [];
+    const toastEntries = changedTypes
+      .map((type) => {
+        const winnerData = currentWinners[type];
+        const winners = Array.isArray(winnerData) ? winnerData : winnerData ? [winnerData] : [];
+        if (!winners.length) return null;
 
-    if (winners.length) {
-      const label = winLabels[toastType] || toastType;
-      const names = winners.map((w) => w.userName).join(" & ");
-      setToast({ id: Date.now(), user: names, label, tied: winners.length > 1 });
-      setTimeout(() => setToast(null), 10000);
+        return {
+          type,
+          label: winLabels[type] || type,
+          user: winners.map((winner) => winner.userName).join(" & "),
+          tied: winners.length > 1,
+        };
+      })
+      .filter(Boolean);
+
+    if (toastEntries.length) {
+      showTimedToast({
+        id: Date.now(),
+        entries: toastEntries,
+        isFullHouse: toastEntries.some((entry) => entry.type === "fullHouse"),
+      });
     }
 
   }, [game?.winners]);
@@ -271,6 +321,14 @@ export default function GamePage() {
 
 
   // ── Ticket selection helpers ──────────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      clearTimeout(toastTimerRef.current);
+      clearTimeout(fullHouseAudioTimerRef.current);
+      clearTimeout(fullHouseVictoryTimerRef.current);
+    };
+  }, []);
+
   function toggleTicketSelect(ticketId) {
     setSelectedTickets(prev =>
       prev.includes(ticketId) ? prev.filter(id => id !== ticketId) : [...prev, ticketId]
@@ -300,17 +358,15 @@ export default function GamePage() {
       clearSelection();
 
       if (result.failed && result.failed.length > 0) {
-        setToast({
+        showTimedToast({
           id: Date.now(),
           user: "Partial Booking",
           label: `Ticket(s) ${result.booked.join(", ")} were successfully booked. However, ${result.failed.join(", ")} was taken by someone else just before you!`,
           isWarning: true
-        });
-        setTimeout(() => setToast(null), 8000);
+        }, 8000);
       } else {
         // Success
-        setToast({ id: Date.now(), user: "Success", label: "Tickets booked successfully!", isError: false });
-        setTimeout(() => setToast(null), 3000);
+        showTimedToast({ id: Date.now(), user: "Success", label: "Tickets booked successfully!", isError: false }, 3000);
       }
 
       // Open WhatsApp with only the successfully booked tickets
@@ -323,13 +379,11 @@ export default function GamePage() {
 
       if (err.code === "ALL_TICKETS_BOOKED") {
         // Every ticket in the selection was already taken
-        setToast({ id: Date.now(), user: "Oops!", label: "Someone was faster than you.. please select some other ticket.", isError: true });
-        setTimeout(() => setToast(null), 5000);
+        showTimedToast({ id: Date.now(), user: "Oops!", label: "Someone was faster than you.. please select some other ticket.", isError: true }, 5000);
         clearSelection();
       } else {
         // Generic Firestore / network error — don't blame the user
-        setToast({ id: Date.now(), user: "Error", label: "Booking failed due to a connection issue. Please try again.", isError: true });
-        setTimeout(() => setToast(null), 5000);
+        showTimedToast({ id: Date.now(), user: "Error", label: "Booking failed due to a connection issue. Please try again.", isError: true }, 5000);
         // Don't clear selection so they can retry the same tickets
       }
     } finally {
@@ -395,7 +449,7 @@ export default function GamePage() {
       {toast && (
         <div
           key={toast.id}
-          className="winner-toast"
+          className={`winner-toast${toast.isFullHouse ? " full-house-toast" : ""}`}
           style={
             toast.isError
               ? {
@@ -422,19 +476,29 @@ export default function GamePage() {
         >
           <div className="toast-content" style={(toast.isError || toast.isWarning) ? { display: 'flex', alignItems: 'center', gap: '16px' } : {}}>
             <span className="toast-icon" style={(toast.isError || toast.isWarning) ? { fontSize: '2.5rem' } : {}}>
-              {toast.isError ? "🏃💨" : toast.isWarning ? "⚠️" : (toast.user === "Success" ? "✅" : "🎉")}
+              {toast.isError ? "\u{1F3C3}\u{1F4A8}" : toast.isWarning ? "\u26A0\uFE0F" : (!Array.isArray(toast.entries) && toast.user === "Success" ? "\u2705" : "\u{1F389}")}
             </span>
-            <div style={(toast.isError || toast.isWarning) ? { display: 'flex', flexDirection: 'column', gap: '4px', textAlign: 'left' } : {}}>
+            <div className={`toast-copy${toast.isFullHouse ? " full-house-copy" : ""}`} style={(toast.isError || toast.isWarning) ? { display: 'flex', flexDirection: 'column', gap: '4px' } : {}}>
               {(toast.isError || toast.isWarning) && <strong style={{ fontSize: '1.2rem', textShadow: '0 2px 4px rgba(0,0,0,0.2)' }}>{toast.user}</strong>}
-              <span className="toast-message" style={(toast.isError || toast.isWarning) ? { fontSize: '1rem', opacity: 0.95, lineHeight: 1.4 } : {}}>
-                {toast.tied !== undefined ? (
-                  toast.tied
-                    ? <>It's a tie! <strong>{toast.user}</strong> both completed {toast.label}!</>
-                    : <>Congratulations <strong>{toast.user}</strong>! You have completed {toast.label}.</>
-                ) : (
-                  <>{toast.label}</>
-                )}
-              </span>
+              {Array.isArray(toast.entries) ? (
+                <div className="toast-lines">
+                  {toast.entries.map((entry, index) => (
+                    <span
+                      key={`${entry.type}-${index}`}
+                      className={`toast-message${index > 0 ? " toast-message-secondary" : ""}`}
+                      style={(toast.isError || toast.isWarning) ? { fontSize: '1rem', opacity: 0.95, lineHeight: 1.4 } : {}}
+                    >
+                      {entry.tied
+                        ? <>It's a tie! <strong>{entry.user}</strong> both completed {entry.label}!</>
+                        : <>Congratulations <strong>{entry.user}</strong>! You have completed {entry.label}.</>}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <span className="toast-message" style={(toast.isError || toast.isWarning) ? { fontSize: '1rem', opacity: 0.95, lineHeight: 1.4 } : {}}>
+                  {toast.label}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -601,11 +665,21 @@ export default function GamePage() {
         //   </div>
         // </main>
 
-        <VictoryScreen
-          game={game}
-          tickets={tickets}
-          setActiveModal={setActiveModal}
-        />
+        showVictoryScreen ? (
+          <VictoryScreen
+            game={game}
+            tickets={tickets}
+            setActiveModal={setActiveModal}
+          />
+        ) : (
+          <main className="full-house-hold">
+            <div className="full-house-hold-card">
+              <div className="full-house-hold-kicker">Grand Finale</div>
+              <h2 className="full-house-hold-title">Full House Claimed!</h2>
+              <p className="full-house-hold-copy">Hold tight while we celebrate the winner before revealing the final victory screen.</p>
+            </div>
+          </main>
+        )
 
       ) : (
         <main className="main-layout">
@@ -619,9 +693,10 @@ export default function GamePage() {
             {game?.rules && (
               <div className="active-rules-bar">
                 <span className="active-rules-label">💡 Active prizes:</span>
-                {["topLine", "middleLine", "lastLine", "quickSeven", "fullHouse"].map(r =>
+                {["topLine", "middleLine", "lastLine", "corners", "quickSeven", "fullHouse"].map(r =>
                   game.rules[r] ? (
                     <span key={r} className="active-rule-chip">
+                      {r === "corners" ? "🔶 Corners" : null}
                       {{ topLine: "🎯 Top Line", middleLine: "🎯 Middle Line", lastLine: "🎯 Last Line", quickSeven: "⚡ Quick 7", fullHouse: "🏆 Full House" }[r]}
                     </span>
                   ) : null
@@ -866,6 +941,7 @@ function VictoryScreen({ game, tickets, setActiveModal }) {
   }, []);
 
   const categories = [
+    { key: 'corners', title: 'CORNERS', emoji: '🔶', label: 'Corners Winner' },
     { key: 'fullHouse', title: 'FULL HOUSE!', emoji: '🎉🏆🏆🎉', label: 'Full House Winner' },
     { key: 'topLine', title: 'TOP LINE', emoji: '🎯', label: 'Top Line Winner' },
     { key: 'middleLine', title: 'MIDDLE LINE', emoji: '🎯', label: 'Middle Line Winner' },

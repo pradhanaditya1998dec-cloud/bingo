@@ -178,7 +178,7 @@ export default function AdminPage() {
   // ── Winner detection ──────────────────────────────────────
   useEffect(() => {
     if (!game?.calledNumbers?.length || !Object.keys(tickets).length) return;
-    const rules = game.rules || { topLine: true, middleLine: true, lastLine: true, quickSeven: true, fullHouse: true };
+    const rules = game.rules || { topLine: true, middleLine: true, lastLine: true, corners: false, quickSeven: true, fullHouse: true };
 
     async function detectWinners() {
       const bookedTickets = Object.values(tickets).filter(t => t.status === "booked");
@@ -301,7 +301,7 @@ export default function AdminPage() {
       setTickets({});
       const ruleNames = Object.entries(rules)
         .filter(([, v]) => v)
-        .map(([k]) => ({ topLine: "Top", middleLine: "Middle", lastLine: "Last", fullHouse: "Full House" }[k]))
+        .map(([k]) => ({ topLine: "Top", middleLine: "Middle", lastLine: "Last", corners: "Corners", quickSeven: "Quick 7", fullHouse: "Full House" }[k]))
         .join(", ");
       success(`✅ Game created! ${ticketCount} tickets · Prizes: ${ruleNames}`);
     } catch (e) { toastError("Init failed: " + e.message); }
@@ -321,6 +321,21 @@ export default function AdminPage() {
         stopAutoDraw();
         await setGameStatus(gameId, "closed");
         success("Game ended.");
+      },
+    });
+  }
+
+  function confirmStartGame() {
+    setModal({
+      open: true,
+      title: "Start Game?",
+      message: "This will make the game live and enable number calling for players. Are you sure?",
+      confirmLabel: "Yes, Start Game",
+      danger: false,
+      onConfirm: async () => {
+        setModal(m => ({ ...m, open: false }));
+        await setGameStatus(gameId, "live");
+        success("Game started.");
       },
     });
   }
@@ -527,14 +542,18 @@ export default function AdminPage() {
                       {/* {["topLine","middleLine","lastLine","fullHouse"].map(r =>
                         game.rules[r] ? (
                           <span key={r} className="active-rule-chip">
+                            {r === "corners" ? "🔶 Corners" : null}
+                            {r === "corners" ? "🔶 Corners" : null}
+                            {r === "corners" ? "🔶 Corners" : null}
+                            {r === "corners" ? "🔶 Corners" : null}
                             {{ topLine:"Top Line", middleLine:"Middle Line", lastLine:"Last Line", fullHouse:"Full House" }[r]}
                           </span>
                         ) : null
                       )} */}
-                      {["topLine", "middleLine", "lastLine", "quickSeven", "fullHouse"].map(r =>
+                      {["topLine", "middleLine", "lastLine", "corners", "quickSeven", "fullHouse"].map(r =>
                         game.rules[r] ? (
                           <span key={r} className="active-rule-chip">
-                            {{ topLine: "🎯 Top Line", middleLine: "🎯 Middle Line", lastLine: "🎯 Last Line", quickSeven: "⚡ Quick 7", fullHouse: "🏆 Full House" }[r]}
+                            {r === "corners" ? "Corners" : ({ topLine: "Top Line", middleLine: "Middle Line", lastLine: "Last Line", quickSeven: "Quick 7", fullHouse: "Full House" }[r])}
                           </span>
                         ) : null
                       )}
@@ -561,7 +580,7 @@ export default function AdminPage() {
                     </button>
 
                     <button
-                      onClick={() => setGameStatus(gameId, "live")}
+                      onClick={confirmStartGame}
                       disabled={!gameId || game?.status === "live" || game?.status === "closed"}
                       className="admin-btn primary"
                     >
@@ -841,3 +860,4 @@ export default function AdminPage() {
     </div>
   );
 }
+

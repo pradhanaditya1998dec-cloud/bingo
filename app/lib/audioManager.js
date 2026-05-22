@@ -9,6 +9,7 @@ if (typeof window === "undefined") {
     stopLoopingAudio: () => { },
     playGameStartCountdown: () => { },
     playWinnerSound: () => { },
+    playAudioOverlay: () => { },
   };
 }
 
@@ -147,12 +148,20 @@ function _playNextInQueue() {
 }
 
 // ── Secondary element helper ────────────────────────────────
-function _playWinnerSrc(src, volume = 1) {
+function _playWinnerSrc(src, { volume = 1, onEnd = null } = {}) {
   if (!winnerEl) return;
+  winnerEl.onended = null;
   winnerEl.pause();
   winnerEl.currentTime = 0;
   winnerEl.src = src;
   winnerEl.volume = volume;
+  winnerEl.loop = false;
+  if (typeof onEnd === "function") {
+    winnerEl.onended = () => {
+      winnerEl.onended = null;
+      onEnd();
+    };
+  }
   winnerEl.load();
   winnerEl.play().catch(err => {
     if (err.name !== "AbortError")
@@ -169,9 +178,14 @@ export function announceNumber(n, onEnd) {
   _enqueue(`/audio/${n}.mp3`, onEnd);
 }
 
-export function playWinnerSound() {
+export function playWinnerSound(filename = "winner-lines.wav", onEnd = null) {
   if (typeof window === "undefined" || !unlocked) return;
-  _playWinnerSrc("/audio/winner-lines.wav", 0.9);
+  _playWinnerSrc(`/audio/${filename}`, { volume: 0.9, onEnd });
+}
+
+export function playAudioOverlay(filename, onEnd = null) {
+  if (typeof window === "undefined" || !unlocked) return;
+  _playWinnerSrc(`/audio/${filename}`, { volume: 1, onEnd });
 }
 
 export function playAudioFile(filename) {

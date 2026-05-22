@@ -31,6 +31,7 @@ export async function initTodayGame(gameId, rules = {}) {
       topLine:    rules.topLine    ?? true,
       middleLine: rules.middleLine ?? true,
       lastLine:   rules.lastLine   ?? true,
+      corners:    rules.corners    ?? false,
       quickSeven: rules.quickSeven ?? false,
       fullHouse:  true,   // always on
     },
