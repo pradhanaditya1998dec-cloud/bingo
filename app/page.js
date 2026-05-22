@@ -941,8 +941,8 @@ function VictoryScreen({ game, tickets, setActiveModal }) {
   }, []);
 
   const categories = [
-    { key: 'corners', title: 'CORNERS', emoji: '🔶', label: 'Corners Winner' },
     { key: 'fullHouse', title: 'FULL HOUSE!', emoji: '🎉🏆🏆🎉', label: 'Full House Winner' },
+    { key: 'corners', title: 'CORNERS', emoji: '🔶', label: 'Corners Winner' },
     { key: 'topLine', title: 'TOP LINE', emoji: '🎯', label: 'Top Line Winner' },
     { key: 'middleLine', title: 'MIDDLE LINE', emoji: '🎯', label: 'Middle Line Winner' },
     { key: 'lastLine', title: 'LAST LINE', emoji: '🎯', label: 'Last Line Winner' },
