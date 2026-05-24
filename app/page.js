@@ -10,7 +10,7 @@ import {
   bookTicketsWithTransaction,
 } from "./lib/gameStore";
 import { formatGameId, reconstructGrid } from "./lib/tambola";
-import { announceNumber, preloadAudio, initAudio, playGameStartCountdown, playAudioFileLooping, playWinnerSound, stopLoopingAudio } from "./lib/audioManager";
+import { announceNumber, preloadAudio, playAudioOverlay, playBlockingAudio, playBlockingAudioSequence, playAudioFileLooping, stopLoopingAudio } from "./lib/audioManager";
 import TicketCard from "./components/TicketCard";
 import NumberBoard from "./components/NumberBoard";
 import WinnersPanel from "./components/WinnersPanel";
@@ -22,6 +22,15 @@ import BookingListModal from "./components/BookingListModal";
 // const ADMIN_PHONE = process.env.NEXT_PUBLIC_ADMIN_WHATSAPP || "917628863362";
 
 export default function GamePage() {
+  const winnerAudioByType = {
+    topLine: "top-line.mp3",
+    middleLine: "middle-line.mp3",
+    lastLine: "bottom-line.mp3",
+    corners: "corners.mp3",
+    quickSeven: "quick-7.mp3",
+    fullHouse: "bingo.mp3",
+  };
+
   // ── Active game ID — driven by Firestore meta pointer ──────────────────
   // This is the key fix: instead of computing a static gameId at render time,
   // we subscribe to games/_meta and re-subscribe to game+tickets whenever the
@@ -49,6 +58,8 @@ export default function GamePage() {
   const prevCalled = useRef([]);
   const isInitialLoad = useRef(true);
   const toastTimerRef = useRef(null);
+  const announcementTimerRef = useRef(null);
+  const pendingAnnouncementRef = useRef(null);
   const fullHouseAudioTimerRef = useRef(null);
   const fullHouseVictoryTimerRef = useRef(null);
 
@@ -192,6 +203,10 @@ export default function GamePage() {
       }
     }
 
+    if (prev === "waiting" && curr === "live") {
+      playBlockingAudio("game-start.mp3");
+    }
+
     // if (curr === "closed" && prev !== "closed" && prev !== null) {
     //   // Only set fallback if fullHouse wasn't already won
     //   // (if it was, the bingo onEnd callback handles the outro)
@@ -205,6 +220,8 @@ export default function GamePage() {
 
     prevStatusRef.current = curr;
     return () => {
+      clearTimeout(announcementTimerRef.current);
+      pendingAnnouncementRef.current = null;
       clearTimeout(outroTimerRef.current);
       clearTimeout(fullHouseVictoryTimerRef.current);
     };
@@ -223,19 +240,36 @@ export default function GamePage() {
 
     // If game just closed, chain outro as onEnd so it plays
     // only AFTER the last number finishes speaking
+    const latestNumber = newNums[newNums.length - 1];
+
+    clearTimeout(announcementTimerRef.current);
+
+    if (game.status !== "closed" && newNums.length > 1) {
+      announcementTimerRef.current = null;
+      pendingAnnouncementRef.current = null;
+      newNums.forEach((number) => announceNumber(number));
+      return;
+    }
+
     if (game.status === "closed") {
+      pendingAnnouncementRef.current = null;
       clearTimeout(outroTimerRef.current); // cancel the fallback timer
       if (hasFullHouseWinner) {
-        announceNumber(newNums[newNums.length - 1]);
+        announceNumber(latestNumber);
       } else {
-        announceNumber(newNums[newNums.length - 1], () => {
+        announceNumber(latestNumber, () => {
           playAudioFileLooping("outro.wav");
         });
       }
       return;
     }
 
-    announceNumber(newNums[newNums.length - 1]);
+    pendingAnnouncementRef.current = latestNumber;
+    announcementTimerRef.current = setTimeout(() => {
+      announcementTimerRef.current = null;
+      pendingAnnouncementRef.current = null;
+      announceNumber(latestNumber);
+    }, 900);
   }, [game?.calledNumbers, game?.status, hasFullHouseWinner]);
 
 
@@ -282,15 +316,38 @@ export default function GamePage() {
     //   playAudioFile("winner-lines.wav");
     // }
 
+    const regularWinnerAudio = changedTypes
+      .filter((type) => type !== "fullHouse")
+      .map((type) => winnerAudioByType[type])
+      .filter(Boolean);
+
+    if (regularWinnerAudio.length) {
+      const pendingNumber = pendingAnnouncementRef.current;
+      const winningNumber = pendingNumber ?? game.calledNumbers?.[game.calledNumbers.length - 1] ?? null;
+
+      if (pendingNumber !== null) {
+        clearTimeout(announcementTimerRef.current);
+        announcementTimerRef.current = null;
+        pendingAnnouncementRef.current = null;
+      }
+
+      if (winningNumber !== null) {
+        playAudioOverlay("winner-lines.wav");
+        announceNumber(winningNumber);
+        playBlockingAudioSequence(regularWinnerAudio);
+      } else {
+        playAudioOverlay("winner-lines.wav");
+        playBlockingAudioSequence(regularWinnerAudio);
+      }
+    }
+
     if (changedTypes.includes("fullHouse")) {
       clearTimeout(fullHouseAudioTimerRef.current);
       fullHouseAudioTimerRef.current = setTimeout(() => {
-        playWinnerSound("bingo.mp3", () => {
+        playBlockingAudio(winnerAudioByType.fullHouse, () => {
           playAudioFileLooping("outro.wav");
         });
       }, 8000);
-    } else {
-      playWinnerSound();
     }
 
     // Show toast — prioritise fullHouse if it's among the changed types
@@ -324,6 +381,8 @@ export default function GamePage() {
   // ── Ticket selection helpers ──────────────────────────────────────────
   useEffect(() => {
     return () => {
+      clearTimeout(announcementTimerRef.current);
+      pendingAnnouncementRef.current = null;
       clearTimeout(toastTimerRef.current);
       clearTimeout(fullHouseAudioTimerRef.current);
       clearTimeout(fullHouseVictoryTimerRef.current);

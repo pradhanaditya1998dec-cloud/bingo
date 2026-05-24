@@ -5,6 +5,8 @@ if (typeof window === "undefined") {
     announceNumber: () => { },
     preloadAudio: () => { },
     playAudioFile: () => { },
+    playBlockingAudio: () => { },
+    playBlockingAudioSequence: () => { },
     playAudioFileLooping: () => { },
     stopLoopingAudio: () => { },
     playGameStartCountdown: () => { },
@@ -178,9 +180,28 @@ export function announceNumber(n, onEnd) {
   _enqueue(`/audio/${n}.mp3`, onEnd);
 }
 
+export function playBlockingAudio(filename, onEnd = null) {
+  if (typeof window === "undefined") return;
+  if (!unlocked) {
+    if (typeof onEnd === "function") onEnd();
+    return;
+  }
+  _enqueue(`/audio/${filename}`, onEnd);
+}
+
+export function playBlockingAudioSequence(filenames = [], onEnd = null) {
+  if (!Array.isArray(filenames) || filenames.length === 0) {
+    if (typeof onEnd === "function") onEnd();
+    return;
+  }
+
+  filenames.forEach((filename, index) => {
+    playBlockingAudio(filename, index === filenames.length - 1 ? onEnd : null);
+  });
+}
+
 export function playWinnerSound(filename = "winner-lines.wav", onEnd = null) {
-  if (typeof window === "undefined" || !unlocked) return;
-  _playWinnerSrc(`/audio/${filename}`, { volume: 0.9, onEnd });
+  playBlockingAudio(filename, onEnd);
 }
 
 export function playAudioOverlay(filename, onEnd = null) {
