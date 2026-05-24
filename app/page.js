@@ -834,6 +834,7 @@ export default function GamePage() {
       {activeModal === 'rules' && <RulesModal onClose={() => setActiveModal(null)} />}
       {activeModal === 'winners' && <WinnersModal onClose={() => setActiveModal(null)} />}
       {activeModal === 'bookings' && <BookingListModal tickets={tickets} onClose={() => setActiveModal(null)} />}
+      <a ref={waLinkRef} href="#" target="_blank" rel="noopener noreferrer" style={{ display: 'none' }} aria-hidden="true" />
     </div>
 
 
@@ -886,10 +887,19 @@ function WinnerTicketDisplay({ ticket, calledNumbers, winType }) {
 function VictoryScreen({ game, tickets, setActiveModal }) {
   const canvasRef = useRef(null);
   const rootRef = useRef(null);
+  const starsLayerRef = useRef(null);
+  const confettiLayerRef = useRef(null);
 
   useEffect(() => {
     // ── Stars ──
-    const starsLayer = document.getElementById('starsLayer');
+    const starsLayer = starsLayerRef.current;
+    const confettiLayer = confettiLayerRef.current;
+    const canvas = canvasRef.current;
+    const root = rootRef.current;
+
+    if (!starsLayer || !confettiLayer || !canvas || !root) return;
+
+    starsLayer.innerHTML = "";
     for (let i = 0; i < 80; i++) {
       const s = document.createElement('div');
       s.className = 'vs-star';
@@ -899,7 +909,7 @@ function VictoryScreen({ game, tickets, setActiveModal }) {
     }
 
     // ── Confetti ──
-    const confettiLayer = document.getElementById('confettiLayer');
+    confettiLayer.innerHTML = "";
     const cfColors = ['#f5a623', '#ff6b6b', '#6bffce', '#ce6bff', '#6baeff', '#fff56b'];
     const intervals = [];
 
@@ -915,13 +925,14 @@ function VictoryScreen({ game, tickets, setActiveModal }) {
     intervals.push(setInterval(spawnConfetti, 200));
 
     // ── Fireworks ──
-    const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      intervals.forEach(clearInterval);
+      return;
+    }
     let W, H, animId;
 
     function resize() {
-      const root = rootRef.current;
-      if (!root) return;
       W = canvas.width = root.offsetWidth;
       H = canvas.height = root.offsetHeight;
     }
@@ -996,6 +1007,8 @@ function VictoryScreen({ game, tickets, setActiveModal }) {
       window.removeEventListener('resize', resize);
       cancelAnimationFrame(animId);
       intervals.forEach(clearInterval);
+      starsLayer.innerHTML = "";
+      confettiLayer.innerHTML = "";
     };
   }, []);
 
@@ -1010,9 +1023,9 @@ function VictoryScreen({ game, tickets, setActiveModal }) {
 
   return (
     <main className="vs-root" ref={rootRef}>
-      <div className="vs-stars-layer" id="starsLayer" />
+      <div className="vs-stars-layer" ref={starsLayerRef} />
       <canvas ref={canvasRef} className="vs-canvas" />
-      <div className="vs-confetti-layer" id="confettiLayer" />
+      <div className="vs-confetti-layer" ref={confettiLayerRef} />
 
       <div className="vs-content">
 
@@ -1063,7 +1076,6 @@ function VictoryScreen({ game, tickets, setActiveModal }) {
         </button>
 
       </div>
-      <a ref={waLinkRef} href="#" target="_blank" rel="noopener noreferrer" style={{ display: 'none' }} aria-hidden="true" />
     </main>
   );
 }
