@@ -356,66 +356,46 @@ export default function GamePage() {
     const nonFinalFullHouseTypes = changedTypes.filter(
       (type) => type === "fullHouse" && isSecondFullHouseEnabled
     );
+    const pendingNumber = pendingAnnouncementRef.current;
+    const winningNumber = pendingNumber ?? game.calledNumbers?.[game.calledNumbers.length - 1] ?? null;
+    let hasAnnouncedWinningNumber = false;
+
+    if (pendingNumber !== null) {
+      clearTimeout(announcementTimerRef.current);
+      announcementTimerRef.current = null;
+      pendingAnnouncementRef.current = null;
+    }
+
+    function announceWinningNumberOnce() {
+      if (hasAnnouncedWinningNumber || winningNumber === null) return false;
+      hasAnnouncedWinningNumber = true;
+      playAudioOverlay("winner-lines.wav");
+      appendDisplayedCalledNumber(winningNumber);
+      announceNumber(winningNumber);
+      return true;
+    }
+
     const regularWinnerAudio = changedTypes
       .filter((type) => type !== "fullHouse" && type !== "secondFullHouse")
       .map((type) => winnerAudioByType[type])
       .filter(Boolean);
 
     if (regularWinnerAudio.length) {
-      const pendingNumber = pendingAnnouncementRef.current;
-      const winningNumber = pendingNumber ?? game.calledNumbers?.[game.calledNumbers.length - 1] ?? null;
-
-      if (pendingNumber !== null) {
-        clearTimeout(announcementTimerRef.current);
-        announcementTimerRef.current = null;
-        pendingAnnouncementRef.current = null;
-      }
-
-      if (winningNumber !== null) {
-        playAudioOverlay("winner-lines.wav");
-        appendDisplayedCalledNumber(winningNumber);
-        announceNumber(winningNumber);
+      if (announceWinningNumberOnce()) {
         playBlockingAudioSequence(regularWinnerAudio);
       } else {
-        playAudioOverlay("winner-lines.wav");
         playBlockingAudioSequence(regularWinnerAudio);
       }
     }
 
     if (nonFinalFullHouseTypes.length) {
-      const pendingNumber = pendingAnnouncementRef.current;
-      const winningNumber = pendingNumber ?? game.calledNumbers?.[game.calledNumbers.length - 1] ?? null;
-
-      if (pendingNumber !== null) {
-        clearTimeout(announcementTimerRef.current);
-        announcementTimerRef.current = null;
-        pendingAnnouncementRef.current = null;
-      }
-
-      if (winningNumber !== null) {
-        playAudioOverlay("winner-lines.wav");
-        appendDisplayedCalledNumber(winningNumber);
-        announceNumber(winningNumber);
-      }
+      announceWinningNumberOnce();
 
       playBlockingAudioSequence(nonFinalFullHouseTypes.map((type) => winnerAudioByType[type]).filter(Boolean));
     }
 
     if (finalFullHouseTypes.length) {
-      const pendingNumber = pendingAnnouncementRef.current;
-      const winningNumber = pendingNumber ?? game.calledNumbers?.[game.calledNumbers.length - 1] ?? null;
-
-      if (pendingNumber !== null) {
-        clearTimeout(announcementTimerRef.current);
-        announcementTimerRef.current = null;
-        pendingAnnouncementRef.current = null;
-      }
-
-      if (winningNumber !== null) {
-        playAudioOverlay("winner-lines.wav");
-        appendDisplayedCalledNumber(winningNumber);
-        announceNumber(winningNumber);
-      }
+      announceWinningNumberOnce();
 
       clearTimeout(fullHouseAudioTimerRef.current);
       fullHouseAudioTimerRef.current = setTimeout(() => {
