@@ -57,6 +57,7 @@ export default function GamePage() {
 
   const countdownRef = useRef(null);
   const prevWinnersRef = useRef(null);
+  const winnersHydratedRef = useRef(false);
   const prevCalled = useRef([]);
   const displayCalledRef = useRef([]);
   const isInitialLoad = useRef(true);
@@ -125,6 +126,8 @@ export default function GamePage() {
     displayCalledRef.current = [];
     setSelectedTickets([]);
     prevCalled.current = [];
+    prevWinnersRef.current = null;
+    winnersHydratedRef.current = false;
     isInitialLoad.current = true;
     setShowVictoryScreen(true);
     setLoading(true);
@@ -134,6 +137,8 @@ export default function GamePage() {
         prevCalled.current = data?.calledNumbers || [];
         displayCalledRef.current = data?.calledNumbers || [];
         setDisplayCalledNumbers(data?.calledNumbers || []);
+        prevWinnersRef.current = data?.winners || {};
+        winnersHydratedRef.current = true;
         isInitialLoad.current = false;
       }
       setGame(data);
@@ -275,7 +280,7 @@ export default function GamePage() {
       clearTimeout(outroTimerRef.current); // cancel the fallback timer
       if (hasClosingFullHouseWinner) {
         appendDisplayedCalledNumber(latestNumber);
-        announceNumber(latestNumber);
+        return;
       } else {
         appendDisplayedCalledNumber(latestNumber);
         announceNumber(latestNumber, () => {
@@ -299,11 +304,18 @@ export default function GamePage() {
   useEffect(() => {
     if (!game) {
       prevWinnersRef.current = null;
+      winnersHydratedRef.current = false;
       return;
     }
 
     const currentWinners = game.winners || {};
     const prevWinners = prevWinnersRef.current || {};
+
+    if (!winnersHydratedRef.current) {
+      prevWinnersRef.current = currentWinners;
+      winnersHydratedRef.current = true;
+      return;
+    }
 
     const winLabels = {
       topLine: "the Top Line",
@@ -330,7 +342,6 @@ export default function GamePage() {
     prevWinnersRef.current = currentWinners;
 
     if (!changedTypes.length) return;
-    if (game.status === "closed") return;
 
     // If fullHouse is among the winners (even alongside others), play bingo
     // if (changedTypes.includes("fullHouse")) {
@@ -391,6 +402,21 @@ export default function GamePage() {
     }
 
     if (finalFullHouseTypes.length) {
+      const pendingNumber = pendingAnnouncementRef.current;
+      const winningNumber = pendingNumber ?? game.calledNumbers?.[game.calledNumbers.length - 1] ?? null;
+
+      if (pendingNumber !== null) {
+        clearTimeout(announcementTimerRef.current);
+        announcementTimerRef.current = null;
+        pendingAnnouncementRef.current = null;
+      }
+
+      if (winningNumber !== null) {
+        playAudioOverlay("winner-lines.wav");
+        appendDisplayedCalledNumber(winningNumber);
+        announceNumber(winningNumber);
+      }
+
       clearTimeout(fullHouseAudioTimerRef.current);
       fullHouseAudioTimerRef.current = setTimeout(() => {
         playBlockingAudio(winnerAudioByType[finalFullHouseTypes[0]], () => {
@@ -423,7 +449,7 @@ export default function GamePage() {
       });
     }
 
-  }, [game?.winners, isSecondFullHouseEnabled]);
+  }, [game?.winners, game?.calledNumbers, game?.status, isSecondFullHouseEnabled]);
 
 
 
