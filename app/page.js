@@ -55,6 +55,7 @@ export default function GamePage() {
   // Unsubscribe refs — cleaned up when gameId changes
   const unsubGameRef = useRef(null);
   const unsubTicketsRef = useRef(null);
+  const waLinkRef = useRef(null);
 
 
   const [adminPhone, setAdminPhone] = useState(
@@ -340,56 +341,114 @@ export default function GamePage() {
     ? buildWhatsAppLink(selectedTickets, adminPhone, bookingName.trim())
     : null;
 
+  // async function handleBookTickets() {
+  //   if (!bookingName.trim()) {
+  //     setNameError(true);
+  //     setTimeout(() => setNameError(false), 500);
+  //     return;
+  //   }
+
+  //   setIsBooking(true);
+  //   try {
+  //     const generatedNumber = "ID-" + Math.floor(100000 + Math.random() * 900000);
+  //     const result = await bookTicketsWithTransaction(gameId, selectedTickets, {
+  //       userName: bookingName.trim(),
+  //       userPhone: generatedNumber
+  //     });
+
+  //     clearSelection();
+
+  //     if (result.failed && result.failed.length > 0) {
+  //       showTimedToast({
+  //         id: Date.now(),
+  //         user: "Partial Booking",
+  //         label: `Ticket(s) ${result.booked.join(", ")} were successfully booked. However, ${result.failed.join(", ")} was taken by someone else just before you!`,
+  //         isWarning: true
+  //       }, 8000);
+  //     } else {
+  //       // Success
+  //       showTimedToast({ id: Date.now(), user: "Success", label: "Tickets booked successfully!", isError: false }, 3000);
+  //     }
+
+  //     // Open WhatsApp with only the successfully booked tickets
+  //     const finalWhatsappHref = buildWhatsAppLink(result.booked, adminPhone, bookingName.trim());
+  //     if (finalWhatsappHref) {
+  //       window.open(finalWhatsappHref, '_blank', 'noopener,noreferrer');
+  //     }
+  //   } catch (err) {
+  //     console.error("Booking error:", err);
+
+  //     if (err.code === "ALL_TICKETS_BOOKED") {
+  //       // Every ticket in the selection was already taken
+  //       showTimedToast({ id: Date.now(), user: "Oops!", label: "Someone was faster than you.. please select some other ticket.", isError: true }, 5000);
+  //       clearSelection();
+  //     } else {
+  //       // Generic Firestore / network error — don't blame the user
+  //       showTimedToast({ id: Date.now(), user: "Error", label: "Booking failed due to a connection issue. Please try again.", isError: true }, 5000);
+  //       // Don't clear selection so they can retry the same tickets
+  //     }
+  //   } finally {
+  //     setIsBooking(false);
+  //   }
+  // }
+
   async function handleBookTickets() {
-    if (!bookingName.trim()) {
-      setNameError(true);
-      setTimeout(() => setNameError(false), 500);
-      return;
-    }
-
-    setIsBooking(true);
-    try {
-      const generatedNumber = "ID-" + Math.floor(100000 + Math.random() * 900000);
-      const result = await bookTicketsWithTransaction(gameId, selectedTickets, {
-        userName: bookingName.trim(),
-        userPhone: generatedNumber
-      });
-
-      clearSelection();
-
-      if (result.failed && result.failed.length > 0) {
-        showTimedToast({
-          id: Date.now(),
-          user: "Partial Booking",
-          label: `Ticket(s) ${result.booked.join(", ")} were successfully booked. However, ${result.failed.join(", ")} was taken by someone else just before you!`,
-          isWarning: true
-        }, 8000);
-      } else {
-        // Success
-        showTimedToast({ id: Date.now(), user: "Success", label: "Tickets booked successfully!", isError: false }, 3000);
-      }
-
-      // Open WhatsApp with only the successfully booked tickets
-      const finalWhatsappHref = buildWhatsAppLink(result.booked, adminPhone, bookingName.trim());
-      if (finalWhatsappHref) {
-        window.open(finalWhatsappHref, '_blank', 'noopener,noreferrer');
-      }
-    } catch (err) {
-      console.error("Booking error:", err);
-
-      if (err.code === "ALL_TICKETS_BOOKED") {
-        // Every ticket in the selection was already taken
-        showTimedToast({ id: Date.now(), user: "Oops!", label: "Someone was faster than you.. please select some other ticket.", isError: true }, 5000);
-        clearSelection();
-      } else {
-        // Generic Firestore / network error — don't blame the user
-        showTimedToast({ id: Date.now(), user: "Error", label: "Booking failed due to a connection issue. Please try again.", isError: true }, 5000);
-        // Don't clear selection so they can retry the same tickets
-      }
-    } finally {
-      setIsBooking(false);
-    }
+  if (!bookingName.trim()) {
+    setNameError(true);
+    setTimeout(() => setNameError(false), 500);
+    return;
   }
+
+  setIsBooking(true);
+  try {
+    const generatedNumber = "ID-" + Math.floor(100000 + Math.random() * 900000);
+    const result = await bookTicketsWithTransaction(gameId, selectedTickets, {
+      userName: bookingName.trim(),
+      userPhone: generatedNumber,
+    });
+
+    clearSelection();
+
+    const finalHref = buildWhatsAppLink(result.booked, adminPhone, bookingName.trim());
+
+    if (finalHref && result.booked.length > 0) {
+      if (waLinkRef.current) {
+        waLinkRef.current.href = finalHref;
+        waLinkRef.current.click();
+      } else {
+        window.location.href = finalHref;
+      }
+    }
+
+    if (result.failed?.length > 0) {
+      showTimedToast({
+        id: Date.now(),
+        user: "Partial Booking",
+        label: `Ticket(s) ${result.booked.join(", ")} booked. ${result.failed.join(", ")} was already taken!`,
+        isWarning: true,
+      }, 8000);
+    } else {
+      showTimedToast({ id: Date.now(), user: "Success", label: "Tickets booked successfully!", isError: false }, 3000);
+    }
+
+  } catch (err) {
+    console.error("Booking error:", err);
+
+    if (err.code === "ALL_TICKETS_BOOKED") {
+      showTimedToast({ id: Date.now(), user: "Oops!", label: "Someone was faster — please select another ticket.", isError: true }, 5000);
+      clearSelection();
+    } else if (err.code === "permission-denied") {
+      showTimedToast({ id: Date.now(), user: "Database Error", label: "Booking permission denied. Please try again.", isError: true }, 6000);
+    } else if (err.code === "aborted") {
+      showTimedToast({ id: Date.now(), user: "System Busy", label: "High traffic — please try again.", isError: true }, 6000);
+    } else {
+      showTimedToast({ id: Date.now(), user: "Connection Error", label: `Booking failed: ${err.message || "connection issue"}. Please try again.`, isError: true }, 6000);
+    }
+  } finally {
+    setIsBooking(false);
+  }
+}
+
 
   function formatTime(ts) {
     return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -1004,6 +1063,7 @@ function VictoryScreen({ game, tickets, setActiveModal }) {
         </button>
 
       </div>
+      <a ref={waLinkRef} href="#" target="_blank" rel="noopener noreferrer" style={{ display: 'none' }} aria-hidden="true" />
     </main>
   );
 }
