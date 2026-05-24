@@ -29,6 +29,7 @@ export default function GamePage() {
     corners: "corners.mp3",
     quickSeven: "quick-7.mp3",
     fullHouse: "bingo.mp3",
+    secondFullHouse: "bingo.mp3",
   };
 
   // ── Active game ID — driven by Firestore meta pointer ──────────────────
@@ -39,6 +40,7 @@ export default function GamePage() {
 
   const [game, setGame] = useState(null);
   const [tickets, setTickets] = useState({});
+  const [displayCalledNumbers, setDisplayCalledNumbers] = useState([]);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -56,6 +58,7 @@ export default function GamePage() {
   const countdownRef = useRef(null);
   const prevWinnersRef = useRef(null);
   const prevCalled = useRef([]);
+  const displayCalledRef = useRef([]);
   const isInitialLoad = useRef(true);
   const toastTimerRef = useRef(null);
   const announcementTimerRef = useRef(null);
@@ -85,6 +88,15 @@ export default function GamePage() {
     toastTimerRef.current = setTimeout(() => setToast(null), duration);
   }
 
+  function appendDisplayedCalledNumber(number) {
+    if (number == null) return;
+    if (displayCalledRef.current.includes(number)) return;
+
+    const nextCalled = [...displayCalledRef.current, number];
+    displayCalledRef.current = nextCalled;
+    setDisplayCalledNumbers(nextCalled);
+  }
+
   // ── Step 1: subscribe to the active game pointer ──────────────────────
   useEffect(() => {
     const unsub = subscribeActiveGameId((id) => {
@@ -109,6 +121,8 @@ export default function GamePage() {
     // Reset state for the new game so stale data never shows
     setGame(null);
     setTickets({});
+    setDisplayCalledNumbers([]);
+    displayCalledRef.current = [];
     setSelectedTickets([]);
     prevCalled.current = [];
     isInitialLoad.current = true;
@@ -118,6 +132,8 @@ export default function GamePage() {
     unsubGameRef.current = subscribeGame(gameId, (data) => {
       if (isInitialLoad.current) {
         prevCalled.current = data?.calledNumbers || [];
+        displayCalledRef.current = data?.calledNumbers || [];
+        setDisplayCalledNumbers(data?.calledNumbers || []);
         isInitialLoad.current = false;
       }
       setGame(data);
@@ -176,7 +192,8 @@ export default function GamePage() {
   // ── Game-start countdown + outro loop ───────────────────────────────
   const prevStatusRef = useRef(null);
   const outroTimerRef = useRef(null);
-  const hasFullHouseWinner = !!game?.winners?.fullHouse;
+  const isSecondFullHouseEnabled = !!game?.rules?.secondFullHouse;
+  const hasClosingFullHouseWinner = isSecondFullHouseEnabled ? !!game?.winners?.secondFullHouse : !!game?.winners?.fullHouse;
 
   useEffect(() => {
     const prev = prevStatusRef.current;
@@ -192,7 +209,7 @@ export default function GamePage() {
     }
 
     if (curr === "closed" && prev !== "closed") {
-      if (hasFullHouseWinner && prev !== null) {
+      if (hasClosingFullHouseWinner && prev !== null) {
         setShowVictoryScreen(false);
         clearTimeout(fullHouseVictoryTimerRef.current);
         fullHouseVictoryTimerRef.current = setTimeout(() => {
@@ -225,7 +242,7 @@ export default function GamePage() {
       clearTimeout(outroTimerRef.current);
       clearTimeout(fullHouseVictoryTimerRef.current);
     };
-  }, [game?.status, hasFullHouseWinner]);
+  }, [game?.status, hasClosingFullHouseWinner]);
 
 
 
@@ -247,6 +264,8 @@ export default function GamePage() {
     if (game.status !== "closed" && newNums.length > 1) {
       announcementTimerRef.current = null;
       pendingAnnouncementRef.current = null;
+      const missingNumbers = newNums.filter((number) => !displayCalledRef.current.includes(number));
+      missingNumbers.forEach((number) => appendDisplayedCalledNumber(number));
       newNums.forEach((number) => announceNumber(number));
       return;
     }
@@ -254,9 +273,11 @@ export default function GamePage() {
     if (game.status === "closed") {
       pendingAnnouncementRef.current = null;
       clearTimeout(outroTimerRef.current); // cancel the fallback timer
-      if (hasFullHouseWinner) {
+      if (hasClosingFullHouseWinner) {
+        appendDisplayedCalledNumber(latestNumber);
         announceNumber(latestNumber);
       } else {
+        appendDisplayedCalledNumber(latestNumber);
         announceNumber(latestNumber, () => {
           playAudioFileLooping("outro.wav");
         });
@@ -268,9 +289,10 @@ export default function GamePage() {
     announcementTimerRef.current = setTimeout(() => {
       announcementTimerRef.current = null;
       pendingAnnouncementRef.current = null;
+      appendDisplayedCalledNumber(latestNumber);
       announceNumber(latestNumber);
     }, 900);
-  }, [game?.calledNumbers, game?.status, hasFullHouseWinner]);
+  }, [game?.calledNumbers, game?.status, hasClosingFullHouseWinner]);
 
 
   // ── Winner toast + sound — watches winners independently ─────────────
@@ -290,6 +312,7 @@ export default function GamePage() {
       corners: "the Corners",
       quickSeven: "Quick 7",
       fullHouse: "a Full House",
+      secondFullHouse: "the 2nd Full House",
     };
 
     // Collect ALL changed types
@@ -316,8 +339,14 @@ export default function GamePage() {
     //   playAudioFile("winner-lines.wav");
     // }
 
+    const finalFullHouseTypes = changedTypes.filter(
+      (type) => type === "secondFullHouse" || (type === "fullHouse" && !isSecondFullHouseEnabled)
+    );
+    const nonFinalFullHouseTypes = changedTypes.filter(
+      (type) => type === "fullHouse" && isSecondFullHouseEnabled
+    );
     const regularWinnerAudio = changedTypes
-      .filter((type) => type !== "fullHouse")
+      .filter((type) => type !== "fullHouse" && type !== "secondFullHouse")
       .map((type) => winnerAudioByType[type])
       .filter(Boolean);
 
@@ -333,6 +362,7 @@ export default function GamePage() {
 
       if (winningNumber !== null) {
         playAudioOverlay("winner-lines.wav");
+        appendDisplayedCalledNumber(winningNumber);
         announceNumber(winningNumber);
         playBlockingAudioSequence(regularWinnerAudio);
       } else {
@@ -341,10 +371,29 @@ export default function GamePage() {
       }
     }
 
-    if (changedTypes.includes("fullHouse")) {
+    if (nonFinalFullHouseTypes.length) {
+      const pendingNumber = pendingAnnouncementRef.current;
+      const winningNumber = pendingNumber ?? game.calledNumbers?.[game.calledNumbers.length - 1] ?? null;
+
+      if (pendingNumber !== null) {
+        clearTimeout(announcementTimerRef.current);
+        announcementTimerRef.current = null;
+        pendingAnnouncementRef.current = null;
+      }
+
+      if (winningNumber !== null) {
+        playAudioOverlay("winner-lines.wav");
+        appendDisplayedCalledNumber(winningNumber);
+        announceNumber(winningNumber);
+      }
+
+      playBlockingAudioSequence(nonFinalFullHouseTypes.map((type) => winnerAudioByType[type]).filter(Boolean));
+    }
+
+    if (finalFullHouseTypes.length) {
       clearTimeout(fullHouseAudioTimerRef.current);
       fullHouseAudioTimerRef.current = setTimeout(() => {
-        playBlockingAudio(winnerAudioByType.fullHouse, () => {
+        playBlockingAudio(winnerAudioByType[finalFullHouseTypes[0]], () => {
           playAudioFileLooping("outro.wav");
         });
       }, 5000);
@@ -370,11 +419,11 @@ export default function GamePage() {
       showTimedToast({
         id: Date.now(),
         entries: toastEntries,
-        isFullHouse: toastEntries.some((entry) => entry.type === "fullHouse"),
+        isFullHouse: toastEntries.some((entry) => entry.type === "fullHouse" || entry.type === "secondFullHouse"),
       });
     }
 
-  }, [game?.winners]);
+  }, [game?.winners, isSecondFullHouseEnabled]);
 
 
 
@@ -659,7 +708,7 @@ export default function GamePage() {
         )}
       </header>
 
-      {!hasFullHouseWinner && (
+      {!game?.winners?.fullHouse && !game?.winners?.secondFullHouse && (
         <div>
           <img className="tambola-banner" src="/assets/banner.webp" alt="Welcome to Housie" />
         </div>
@@ -796,7 +845,7 @@ export default function GamePage() {
       ) : (
         <main className="main-layout">
           <aside className="sidebar">
-            <NumberBoard calledNumbers={game.calledNumbers || []} />
+            <NumberBoard calledNumbers={displayCalledNumbers} />
           </aside>
 
           <section className="tickets-section">
@@ -805,11 +854,11 @@ export default function GamePage() {
             {game?.rules && (
               <div className="active-rules-bar">
                 <span className="active-rules-label">💡 Active prizes:</span>
-                {["topLine", "middleLine", "lastLine", "corners", "quickSeven", "fullHouse"].map(r =>
+                {["topLine", "middleLine", "lastLine", "corners", "quickSeven", "fullHouse", "secondFullHouse"].map(r =>
                   game.rules[r] ? (
                     <span key={r} className="active-rule-chip">
                       {r === "corners" ? "🔶 Corners" : null}
-                      {{ topLine: "🎯 Top Line", middleLine: "🎯 Middle Line", lastLine: "🎯 Last Line", quickSeven: "⚡ Quick 7", fullHouse: "🏆 Full House" }[r]}
+                      {{ topLine: "🎯 Top Line", middleLine: "🎯 Middle Line", lastLine: "🎯 Last Line", quickSeven: "⚡ Quick 7", fullHouse: "🏆 Full House", secondFullHouse: "🏆 2nd Full House" }[r]}
                     </span>
                   ) : null
                 )}
@@ -1067,6 +1116,7 @@ function VictoryScreen({ game, tickets, setActiveModal }) {
 
   const categories = [
     { key: 'fullHouse', title: 'FULL HOUSE!', emoji: '🎉🏆🏆🎉', label: 'Full House Winner' },
+    { key: 'secondFullHouse', title: '2ND FULL HOUSE!', emoji: '🏆🏆', label: '2nd Full House Winner' },
     { key: 'corners', title: 'CORNERS', emoji: '🔶', label: 'Corners Winner' },
     { key: 'topLine', title: 'TOP LINE', emoji: '🎯', label: 'Top Line Winner' },
     { key: 'middleLine', title: 'MIDDLE LINE', emoji: '🎯', label: 'Middle Line Winner' },

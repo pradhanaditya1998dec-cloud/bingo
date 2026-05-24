@@ -13,7 +13,7 @@ export default function WinnersPanel({ winners = {}, gameRules = {} }) {
 
   const winCount = activeTypes.filter(t => winners[t]).length;
   const hasAnyWinner = winCount > 0;
-  const hasFullHouse = !!winners.fullHouse;
+  const hasFullHouse = !!winners.fullHouse || !!winners.secondFullHouse;
 
   useEffect(() => {
     if (winCount > prevWinCount.current) {

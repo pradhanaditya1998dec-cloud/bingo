@@ -33,6 +33,7 @@ export async function initTodayGame(gameId, rules = {}) {
       lastLine:   rules.lastLine   ?? true,
       corners:    rules.corners    ?? false,
       quickSeven: rules.quickSeven ?? false,
+      secondFullHouse: rules.secondFullHouse ?? false,
       fullHouse:  true,   // always on
     },
   });

@@ -348,7 +348,9 @@ export function checkWinners(flatNumbers, calledNumbers) {
   const allNums = flatNumbers.filter(n => n !== 0);
   const quickSeven = allNums.filter(n => called.has(n)).length >= 7;
 
-  return { topLine, middleLine, lastLine, corners, quickSeven, fullHouse: topLine && middleLine && lastLine };
+  const fullHouse = topLine && middleLine && lastLine;
+
+  return { topLine, middleLine, lastLine, corners, quickSeven, fullHouse, secondFullHouse: fullHouse };
 }
 
 export function generateGameId() {
@@ -386,7 +388,7 @@ export function getTodayGameId() {
 
 export { announceNumber, preloadAudio, initAudio } from "./audioManager";
 
-export const WIN_TYPES = ["topLine", "middleLine", "lastLine", "corners", "quickSeven", "fullHouse"];
+export const WIN_TYPES = ["topLine", "middleLine", "lastLine", "corners", "quickSeven", "fullHouse", "secondFullHouse"];
 export const WIN_LABELS = {
   topLine:    "🎯 Top Line",
   middleLine: "🎯 Middle Line",
@@ -394,4 +396,5 @@ export const WIN_LABELS = {
   corners:    "🔶 Corners",
   quickSeven: "⚡ Quick 7",
   fullHouse:  "🏆 Full House",
+  secondFullHouse: "🏆 2nd Full House",
 };

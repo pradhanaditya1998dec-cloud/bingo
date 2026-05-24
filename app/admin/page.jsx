@@ -56,6 +56,8 @@ const WINNER_AUDIO_BY_TYPE = {
   lastLine: "bottom-line.mp3",
   corners: "corners.mp3",
   quickSeven: "quick-7.mp3",
+  fullHouse: "bingo.mp3",
+  secondFullHouse: "bingo.mp3",
 };
 const AUDIO_DURATION_FALLBACK_MS = {
   "winner-lines.wav": 1000,
@@ -263,18 +265,22 @@ export default function AdminPage() {
       types.map((type) => getAudioDurationMs(WINNER_AUDIO_BY_TYPE[type]))
     );
 
-    return Math.max(calledNumberMs, winnerLinesMs) + ruleAudioMs.reduce((sum, ms) => sum + ms, 0) + 150;
+    return Math.max(calledNumberMs, winnerLinesMs) + ruleAudioMs.reduce((sum, ms) => sum + ms, 0) + 1000;
   }
 
 
   // ── Winner detection ──────────────────────────────────────
   useEffect(() => {
     if (!game?.calledNumbers?.length || !Object.keys(tickets).length) return;
-    const rules = game.rules || { topLine: true, middleLine: true, lastLine: true, corners: false, quickSeven: true, fullHouse: true };
+    const rules = game.rules || { topLine: true, middleLine: true, lastLine: true, corners: false, quickSeven: true, secondFullHouse: false, fullHouse: true };
 
     async function detectWinners() {
       const bookedTickets = Object.values(tickets).filter(t => t.status === "booked");
       const regularWinnerTypes = [];
+      const firstFullHouseWinnerIds = new Set(
+        (Array.isArray(game.winners?.fullHouse) ? game.winners.fullHouse : game.winners?.fullHouse ? [game.winners.fullHouse] : [])
+          .map((winner) => winner.ticketId)
+      );
 
       for (const type of WIN_TYPES) {
         if (!rules[type]) continue;
@@ -283,6 +289,9 @@ export default function AdminPage() {
         // Collect ALL tickets that won this type simultaneously
         const winners = bookedTickets.filter(ticket => {
           const wins = checkWinners(ticket.numbers, game.calledNumbers);
+          if (type === "secondFullHouse") {
+            return wins.fullHouse && !firstFullHouseWinnerIds.has(ticket.id);
+          }
           return wins[type];
         });
 
@@ -300,10 +309,14 @@ export default function AdminPage() {
         winners.forEach(t => success(`🎉 ${WIN_LABELS[type]}: ${t.userName} (${t.id})`));
 
         if (type === "fullHouse") {
+          winners.forEach((winner) => firstFullHouseWinnerIds.add(winner.id));
+        }
+
+        if (type === "secondFullHouse" || (type === "fullHouse" && !rules.secondFullHouse)) {
           stopAutoDraw();
           await setGameStatus(gameId, "closed");
           const names = winners.map(t => t.userName).join(", ");
-          success(`🏆 GAME OVER! Full House: ${names}!`);
+          success(`🏆 GAME OVER! ${WIN_LABELS[type]}: ${names}!`);
         } else {
           regularWinnerTypes.push(type);
         }
@@ -590,7 +603,7 @@ export default function AdminPage() {
       setTickets({});
       const ruleNames = Object.entries(rules)
         .filter(([, v]) => v)
-        .map(([k]) => ({ topLine: "Top", middleLine: "Middle", lastLine: "Last", corners: "Corners", quickSeven: "Quick 7", fullHouse: "Full House" }[k]))
+        .map(([k]) => ({ topLine: "Top", middleLine: "Middle", lastLine: "Last", corners: "Corners", quickSeven: "Quick 7", fullHouse: "Full House", secondFullHouse: "2nd Full House" }[k]))
         .join(", ");
       success(`✅ Game created! ${ticketCount} tickets · Prizes: ${ruleNames}`);
     } catch (e) { toastError("Init failed: " + e.message); }
@@ -841,10 +854,10 @@ export default function AdminPage() {
                           </span>
                         ) : null
                       )} */}
-                      {["topLine", "middleLine", "lastLine", "corners", "quickSeven", "fullHouse"].map(r =>
+                      {["topLine", "middleLine", "lastLine", "corners", "quickSeven", "fullHouse", "secondFullHouse"].map(r =>
                         game.rules[r] ? (
                           <span key={r} className="active-rule-chip">
-                            {r === "corners" ? "Corners" : ({ topLine: "Top Line", middleLine: "Middle Line", lastLine: "Last Line", quickSeven: "Quick 7", fullHouse: "Full House" }[r])}
+                            {r === "corners" ? "Corners" : ({ topLine: "Top Line", middleLine: "Middle Line", lastLine: "Last Line", quickSeven: "Quick 7", fullHouse: "Full House", secondFullHouse: "2nd Full House" }[r])}
                           </span>
                         ) : null
                       )}

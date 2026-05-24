@@ -20,6 +20,7 @@ export async function POST(req) {
       lastLine: `🎯 Congratulations! You won LAST LINE on ticket ${ticketId}! 🎉`,
       corners: `🔶 Congratulations! You won CORNERS on ticket ${ticketId}! 🎉`,
       fullHouse: `🏆 JACKPOT! You won FULL HOUSE on ticket ${ticketId}! 🏆🎉`,
+      secondFullHouse: `🏆 JACKPOT! You won 2ND FULL HOUSE on ticket ${ticketId}! 🏆🎉`,
     };
 
     const message = winMessages[winType] || `You won on ticket ${ticketId}!`;

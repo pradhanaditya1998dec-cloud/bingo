@@ -8,13 +8,14 @@ const RULE_CONFIG = [
   { key: "lastLine", label: "Last Line", icon: "🎯", desc: "Third row of a ticket fully marked" },
   { key: "corners", label: "Corners", icon: "🔶", desc: "Top row first and last, plus bottom row first and last" },
   { key: "quickSeven", label: "Quick 7", icon: "⚡", desc: "First ticket to have 7 numbers called wins" },
+  { key: "secondFullHouse", label: "2nd Full House", icon: "🏆", desc: "Adds a second full house prize and ends the game only after that winner" },
 ];
 
 export default function NewGameModal({ open, onConfirm, onCancel }) {
   const [ticketCount, setTicketCount] = useState(50);
   const [sheetSize, setSheetSize] = useState(6);
   const [rules, setRules] = useState({
-    topLine: true, middleLine: true, lastLine: true, corners: false, quickSeven: true,
+    topLine: true, middleLine: true, lastLine: true, corners: false, quickSeven: true, secondFullHouse: false,
   });
   const [error, setError] = useState("");
 

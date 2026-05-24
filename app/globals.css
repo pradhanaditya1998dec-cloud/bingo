@@ -5649,3 +5649,9 @@ a {
     font-size: 54px;
   }
 } 
+
+
+.ticket-cell.active:empty {
+  background: rgba(24, 24, 24, 0.11); /* subtle dark tint */
+  cursor: default;
+}
