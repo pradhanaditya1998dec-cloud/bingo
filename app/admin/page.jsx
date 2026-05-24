@@ -50,12 +50,20 @@ const NAV_SECTIONS = [
 
 const GAME_START_DELAY_MS = 8250;
 const CALL_QUEUE_GAP_MS = 3200;
-const WINNER_SEQUENCE_MS_BY_TYPE = {
-  topLine: 6500,
-  middleLine: 4500,
-  lastLine: 5500,
-  corners: 4500,
-  quickSeven: 5500,
+const WINNER_AUDIO_BY_TYPE = {
+  topLine: "top-line.mp3",
+  middleLine: "middle-line.mp3",
+  lastLine: "bottom-line.mp3",
+  corners: "corners.mp3",
+  quickSeven: "quick-7.mp3",
+};
+const AUDIO_DURATION_FALLBACK_MS = {
+  "winner-lines.wav": 1000,
+  "top-line.mp3": 4000,
+  "middle-line.mp3": 2000,
+  "bottom-line.mp3": 3000,
+  "corners.mp3": 2000,
+  "quick-7.mp3": 3000,
 };
 
 // ── Icons ─────────────────────────────────────────────────
@@ -153,6 +161,8 @@ export default function AdminPage() {
   const winnerResumeTimerRef = useRef(null);
   const winnerPauseUntilRef = useRef(0);
   const shouldResumeAutoAfterWinnerRef = useRef(false);
+  const audioDurationCacheRef = useRef(new Map());
+  const audioDurationPromiseRef = useRef(new Map());
   const callQueueRef = useRef([]);
   const callQueueTimerRef = useRef(null);
   const isProcessingQueueRef = useRef(false);
@@ -200,6 +210,62 @@ export default function AdminPage() {
   useEffect(() => { calledSet.current = new Set(game?.calledNumbers || []); }, [game?.calledNumbers]);
   useEffect(() => { autoDrawEnabledRef.current = autoDrawEnabled; }, [autoDrawEnabled]);
 
+  async function getAudioDurationMs(filename) {
+    if (!filename) return 0;
+
+    if (audioDurationCacheRef.current.has(filename)) {
+      return audioDurationCacheRef.current.get(filename);
+    }
+
+    if (audioDurationPromiseRef.current.has(filename)) {
+      return audioDurationPromiseRef.current.get(filename);
+    }
+
+    const promise = new Promise((resolve) => {
+      if (typeof window === "undefined") {
+        resolve(AUDIO_DURATION_FALLBACK_MS[filename] || 0);
+        return;
+      }
+
+      const audio = new Audio(`/audio/${filename}`);
+      const cleanup = () => {
+        audio.onloadedmetadata = null;
+        audio.onerror = null;
+        audioDurationPromiseRef.current.delete(filename);
+      };
+
+      audio.onloadedmetadata = () => {
+        const durationMs = Number.isFinite(audio.duration) ? Math.round(audio.duration * 1000) : (AUDIO_DURATION_FALLBACK_MS[filename] || 0);
+        audioDurationCacheRef.current.set(filename, durationMs);
+        cleanup();
+        resolve(durationMs);
+      };
+
+      audio.onerror = () => {
+        const durationMs = AUDIO_DURATION_FALLBACK_MS[filename] || 0;
+        audioDurationCacheRef.current.set(filename, durationMs);
+        cleanup();
+        resolve(durationMs);
+      };
+
+      audio.preload = "metadata";
+      audio.load();
+    });
+
+    audioDurationPromiseRef.current.set(filename, promise);
+    return promise;
+  }
+
+  async function getWinnerPauseDurationMs(types, calledNumber) {
+    const winnerLinesMs = await getAudioDurationMs("winner-lines.wav");
+    const calledNumberMs = calledNumber ? await getAudioDurationMs(`${calledNumber}.mp3`) : 0;
+    const ruleAudioMs = await Promise.all(
+      types.map((type) => getAudioDurationMs(WINNER_AUDIO_BY_TYPE[type]))
+    );
+
+    return Math.max(calledNumberMs, winnerLinesMs) + ruleAudioMs.reduce((sum, ms) => sum + ms, 0) + 150;
+  }
+
 
   // ── Winner detection ──────────────────────────────────────
   useEffect(() => {
@@ -244,10 +310,8 @@ export default function AdminPage() {
       }
 
       if (regularWinnerTypes.length) {
-        const pauseMs = regularWinnerTypes.reduce(
-          (total, type) => total + (WINNER_SEQUENCE_MS_BY_TYPE[type] || 5000),
-          0
-        );
+        const lastCalledNumber = game.calledNumbers?.[game.calledNumbers.length - 1] ?? null;
+        const pauseMs = await getWinnerPauseDurationMs(regularWinnerTypes, lastCalledNumber);
         pauseForWinnerSequence(pauseMs);
       }
     }
@@ -879,11 +943,11 @@ export default function AdminPage() {
                         : <button onClick={startAutoDraw} disabled={game?.status !== "live"} className="admin-btn primary">▶ Start Auto</button>
                       }
                     </div>
-                    {autoDrawEnabled && (
+                    {/* {autoDrawEnabled && (
                       <div className="autodraw-active-bar">
                         <div className="autodraw-progress" style={{ animationDuration: `${autoDrawInterval}s` }} />
                       </div>
-                    )}
+                    )} */}
                   </div>
 
                   {calledArr.length > 0 && (
