@@ -197,7 +197,7 @@ export default function GamePage() {
         clearTimeout(fullHouseVictoryTimerRef.current);
         fullHouseVictoryTimerRef.current = setTimeout(() => {
           setShowVictoryScreen(true);
-        }, 8000);
+        }, 5000);
       } else {
         setShowVictoryScreen(true);
       }
@@ -347,7 +347,7 @@ export default function GamePage() {
         playBlockingAudio(winnerAudioByType.fullHouse, () => {
           playAudioFileLooping("outro.wav");
         });
-      }, 8000);
+      }, 5000);
     }
 
     // Show toast — prioritise fullHouse if it's among the changed types
@@ -659,9 +659,11 @@ export default function GamePage() {
         )}
       </header>
 
-      <div>
-        <img className="tambola-banner" src="/assets/banner.webp" alt="Welcome to Housie" />
-      </div>
+      {!hasFullHouseWinner && (
+        <div>
+          <img className="tambola-banner" src="/assets/banner.webp" alt="Welcome to Housie" />
+        </div>
+      )}
 
       {/* Scheduled countdown banner */}
       {game?.scheduledAt && game?.status === "waiting" && countdown && (
@@ -789,15 +791,7 @@ export default function GamePage() {
             tickets={tickets}
             setActiveModal={setActiveModal}
           />
-        ) : (
-          <main className="full-house-hold">
-            <div className="full-house-hold-card">
-              <div className="full-house-hold-kicker">Grand Finale</div>
-              <h2 className="full-house-hold-title">Full House Claimed!</h2>
-              <p className="full-house-hold-copy">Hold tight while we celebrate the winner before revealing the final victory screen.</p>
-            </div>
-          </main>
-        )
+        ) : null
 
       ) : (
         <main className="main-layout">

@@ -50,6 +50,13 @@ const NAV_SECTIONS = [
 
 const GAME_START_DELAY_MS = 8250;
 const CALL_QUEUE_GAP_MS = 3200;
+const WINNER_SEQUENCE_MS_BY_TYPE = {
+  topLine: 6500,
+  middleLine: 4500,
+  lastLine: 5500,
+  corners: 4500,
+  quickSeven: 5500,
+};
 
 // ── Icons ─────────────────────────────────────────────────
 function IconSettings() {
@@ -141,7 +148,11 @@ export default function AdminPage() {
   const [autoCountdown, setAutoCountdown] = useState(0);
   const autoDrawRef = useRef(null);
   const autoCountdownRef = useRef(null);
+  const autoDrawEnabledRef = useRef(false);
   const autoStartTimerRef = useRef(null);
+  const winnerResumeTimerRef = useRef(null);
+  const winnerPauseUntilRef = useRef(0);
+  const shouldResumeAutoAfterWinnerRef = useRef(false);
   const callQueueRef = useRef([]);
   const callQueueTimerRef = useRef(null);
   const isProcessingQueueRef = useRef(false);
@@ -165,6 +176,7 @@ export default function AdminPage() {
   useEffect(() => {
     return () => {
       clearTimeout(autoStartTimerRef.current);
+      clearTimeout(winnerResumeTimerRef.current);
       clearTimeout(callQueueTimerRef.current);
     };
   }, []);
@@ -186,6 +198,7 @@ export default function AdminPage() {
   }, [user, gameId]);
 
   useEffect(() => { calledSet.current = new Set(game?.calledNumbers || []); }, [game?.calledNumbers]);
+  useEffect(() => { autoDrawEnabledRef.current = autoDrawEnabled; }, [autoDrawEnabled]);
 
 
   // ── Winner detection ──────────────────────────────────────
@@ -195,6 +208,7 @@ export default function AdminPage() {
 
     async function detectWinners() {
       const bookedTickets = Object.values(tickets).filter(t => t.status === "booked");
+      const regularWinnerTypes = [];
 
       for (const type of WIN_TYPES) {
         if (!rules[type]) continue;
@@ -224,7 +238,17 @@ export default function AdminPage() {
           await setGameStatus(gameId, "closed");
           const names = winners.map(t => t.userName).join(", ");
           success(`🏆 GAME OVER! Full House: ${names}!`);
+        } else {
+          regularWinnerTypes.push(type);
         }
+      }
+
+      if (regularWinnerTypes.length) {
+        const pauseMs = regularWinnerTypes.reduce(
+          (total, type) => total + (WINNER_SEQUENCE_MS_BY_TYPE[type] || 5000),
+          0
+        );
+        pauseForWinnerSequence(pauseMs);
       }
     }
 
@@ -267,6 +291,10 @@ export default function AdminPage() {
     if (game?.status === "live") return;
     clearTimeout(autoStartTimerRef.current);
     autoStartTimerRef.current = null;
+    clearTimeout(winnerResumeTimerRef.current);
+    winnerResumeTimerRef.current = null;
+    winnerPauseUntilRef.current = 0;
+    shouldResumeAutoAfterWinnerRef.current = false;
     clearTimeout(callQueueTimerRef.current);
     callQueueTimerRef.current = null;
     callQueueRef.current = [];
@@ -305,6 +333,77 @@ export default function AdminPage() {
     await callNumber(gameId, num);
   }, [gameId]);
 
+  function isWinnerPauseActive() {
+    return winnerPauseUntilRef.current > Date.now();
+  }
+
+  function restartAutoCountdown() {
+    clearInterval(autoCountdownRef.current);
+    autoCountdownRef.current = null;
+    setAutoCountdown(autoDrawInterval);
+    autoCountdownRef.current = setInterval(() =>
+      setAutoCountdown(p => p <= 1 ? autoDrawInterval : p - 1), 1000);
+  }
+
+  function scheduleNextAutoDraw(delayMs = autoDrawInterval * 1000) {
+    clearTimeout(autoDrawRef.current);
+    autoDrawRef.current = null;
+
+    if (!autoDrawEnabledRef.current || isWinnerPauseActive() || gameRef.current?.status !== "live") {
+      return;
+    }
+
+    restartAutoCountdown();
+    autoDrawRef.current = setTimeout(() => {
+      autoDrawRef.current = null;
+      enqueueDrawRequest();
+    }, delayMs);
+  }
+
+  function pauseForWinnerSequence(durationMs) {
+    const clampedDuration = Math.max(durationMs, CALL_QUEUE_GAP_MS);
+    const resumeAt = Date.now() + clampedDuration;
+
+    winnerPauseUntilRef.current = Math.max(winnerPauseUntilRef.current, resumeAt);
+    shouldResumeAutoAfterWinnerRef.current = autoDrawEnabledRef.current || shouldResumeAutoAfterWinnerRef.current;
+
+    clearTimeout(autoDrawRef.current);
+    autoDrawRef.current = null;
+    clearInterval(autoCountdownRef.current);
+    autoCountdownRef.current = null;
+    autoDrawEnabledRef.current = false;
+    setAutoDrawEnabled(false);
+    setAutoCountdown(0);
+
+    clearTimeout(callQueueTimerRef.current);
+    callQueueTimerRef.current = null;
+    isProcessingQueueRef.current = false;
+    setDrawing(false);
+
+    clearTimeout(winnerResumeTimerRef.current);
+    winnerResumeTimerRef.current = setTimeout(() => {
+      winnerResumeTimerRef.current = null;
+
+      if (winnerPauseUntilRef.current > Date.now()) {
+        pauseForWinnerSequence(winnerPauseUntilRef.current - Date.now());
+        return;
+      }
+
+      winnerPauseUntilRef.current = 0;
+
+      if (callQueueRef.current.length) {
+        processCallQueue();
+      }
+
+      if (shouldResumeAutoAfterWinnerRef.current && gameRef.current?.status === "live") {
+        shouldResumeAutoAfterWinnerRef.current = false;
+        startAutoDraw();
+      } else {
+        shouldResumeAutoAfterWinnerRef.current = false;
+      }
+    }, clampedDuration);
+  }
+
   const processCallQueue = useCallback(async () => {
     if (isProcessingQueueRef.current) return;
 
@@ -335,6 +434,14 @@ export default function AdminPage() {
 
     try {
       await drawOne(requestedNumber);
+      if (
+        autoDrawEnabledRef.current &&
+        !isWinnerPauseActive() &&
+        gameRef.current?.status === "live" &&
+        callQueueRef.current.length === 0
+      ) {
+        scheduleNextAutoDraw();
+      }
     } finally {
       callQueueTimerRef.current = setTimeout(() => {
         isProcessingQueueRef.current = false;
@@ -352,44 +459,33 @@ export default function AdminPage() {
     if (!g || g.status !== "live") return;
 
     if (specificNumber !== null) {
-      const queuedRandomIndex = callQueueRef.current.findIndex(
-        (entry) => entry.type === "random"
-      );
-      const alreadyQueued = callQueueRef.current.some(
+      const activeOrQueuedSpecific = callQueueRef.current.some(
         (entry) => entry.type === "specific" && entry.number === specificNumber
       );
-      if (calledSet.current.has(specificNumber) || alreadyQueued) return;
-      if (queuedRandomIndex !== -1) {
-        callQueueRef.current.splice(queuedRandomIndex, 1);
+      if (calledSet.current.has(specificNumber) || activeOrQueuedSpecific) return;
+
+      // Manual picks get priority over any queued auto call, but keep the queue
+      // to a single "next" item so the board never jumps ahead by multiple calls.
+      callQueueRef.current = [{ type: "specific", number: specificNumber }];
+      if (autoDrawEnabledRef.current) {
+        scheduleNextAutoDraw();
       }
-      callQueueRef.current.push({ type: "specific", number: specificNumber });
-      restartAutoDrawLoop();
     } else {
+      // Never stack multiple future auto calls. One active call + one queued call is enough.
+      if (callQueueRef.current.length > 0) return;
       callQueueRef.current.push({ type: "random" });
     }
 
-    if (!isProcessingQueueRef.current) {
+    if (!isWinnerPauseActive() && !isProcessingQueueRef.current) {
       processCallQueue();
     }
   }, [processCallQueue]);
 
-  function restartAutoDrawLoop() {
-    if (!autoDrawRef.current) return;
-    clearInterval(autoDrawRef.current);
-    clearInterval(autoCountdownRef.current);
-    setAutoCountdown(autoDrawInterval);
-    autoCountdownRef.current = setInterval(() =>
-      setAutoCountdown(p => p <= 1 ? autoDrawInterval : p - 1), 1000);
-    autoDrawRef.current = setInterval(() => enqueueDrawRequest(), autoDrawInterval * 1000);
-  }
-
   function startAutoDraw() {
-    if (autoDrawRef.current) return;
+    if (autoDrawEnabledRef.current) return;
+    autoDrawEnabledRef.current = true;
     setAutoDrawEnabled(true);
-    setAutoCountdown(autoDrawInterval);
-    autoCountdownRef.current = setInterval(() =>
-      setAutoCountdown(p => p <= 1 ? autoDrawInterval : p - 1), 1000);
-    autoDrawRef.current = setInterval(() => enqueueDrawRequest(), autoDrawInterval * 1000);
+    if (isWinnerPauseActive()) return;
     enqueueDrawRequest();
   }
 
@@ -402,9 +498,17 @@ export default function AdminPage() {
   }
 
   function stopAutoDraw() {
-    clearInterval(autoDrawRef.current); autoDrawRef.current = null;
+    clearTimeout(autoDrawRef.current); autoDrawRef.current = null;
     clearInterval(autoCountdownRef.current); autoCountdownRef.current = null;
+    clearTimeout(callQueueTimerRef.current); callQueueTimerRef.current = null;
+    clearTimeout(winnerResumeTimerRef.current); winnerResumeTimerRef.current = null;
+    callQueueRef.current = [];
+    isProcessingQueueRef.current = false;
+    winnerPauseUntilRef.current = 0;
+    shouldResumeAutoAfterWinnerRef.current = false;
+    autoDrawEnabledRef.current = false;
     setAutoDrawEnabled(false); setAutoCountdown(0);
+    setDrawing(false);
   }
 
   // ── Init — from NewGameModal ──────────────────────────────
