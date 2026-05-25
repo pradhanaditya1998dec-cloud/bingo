@@ -5,7 +5,6 @@ import {
   subscribeActiveGameId,
   subscribeGame,
   subscribeTickets,
-  buildWhatsAppAppLink,
   buildWhatsAppLink,
   subscribeAdminSettings,
   bookTicketsWithTransaction,
@@ -452,21 +451,15 @@ export default function GamePage() {
   function clearSelection() { setSelectedTickets([]); }
 
   function openWhatsAppBooking(ticketIds, phone, userName) {
-    const webHref = buildWhatsAppLink(ticketIds, phone, userName);
-    const appHref = buildWhatsAppAppLink(ticketIds, phone, userName);
+    const href = buildWhatsAppLink(ticketIds, phone, userName);
     const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
 
     if (isMobile) {
-      const fallbackTimer = window.setTimeout(() => {
-        window.location.assign(webHref);
-      }, 1200);
-
-      window.addEventListener("pagehide", () => window.clearTimeout(fallbackTimer), { once: true });
-      window.location.href = appHref;
+      window.location.href = href;
       return;
     }
 
-    window.open(webHref, "_blank", "noopener,noreferrer");
+    window.open(href, "_blank", "noopener,noreferrer");
   }
 
   // async function handleBookTickets() {

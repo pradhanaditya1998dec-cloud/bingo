@@ -272,13 +272,7 @@ function buildWhatsAppMessage(ticketIds, userName = "") {
 export function buildWhatsAppLink(ticketIds, adminPhone, userName = "") {
   const phone = normalizeWhatsAppPhone(adminPhone);
   const msg = buildWhatsAppMessage(ticketIds, userName);
-  return `https://api.whatsapp.com/send?phone=${phone}&text=${msg}`;
-}
-
-export function buildWhatsAppAppLink(ticketIds, adminPhone, userName = "") {
-  const phone = normalizeWhatsAppPhone(adminPhone);
-  const msg = buildWhatsAppMessage(ticketIds, userName);
-  return `whatsapp://send?phone=${phone}&text=${msg}`;
+  return `https://wa.me/${phone}?text=${msg}`;
 }
 
 // ── Game ID helpers ────────────────────────────────────────
