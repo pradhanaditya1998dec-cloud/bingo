@@ -5,6 +5,7 @@ import {
   subscribeActiveGameId,
   subscribeGame,
   subscribeTickets,
+  buildWhatsAppAppLink,
   buildWhatsAppLink,
   subscribeAdminSettings,
   bookTicketsWithTransaction,
@@ -70,7 +71,6 @@ export default function GamePage() {
   // Unsubscribe refs — cleaned up when gameId changes
   const unsubGameRef = useRef(null);
   const unsubTicketsRef = useRef(null);
-  const waLinkRef = useRef(null);
 
 
   const [adminPhone, setAdminPhone] = useState(
@@ -451,9 +451,23 @@ export default function GamePage() {
   }
   function clearSelection() { setSelectedTickets([]); }
 
-  const whatsappHref = selectedTickets.length
-    ? buildWhatsAppLink(selectedTickets, adminPhone, bookingName.trim())
-    : null;
+  function openWhatsAppBooking(ticketIds, phone, userName) {
+    const webHref = buildWhatsAppLink(ticketIds, phone, userName);
+    const appHref = buildWhatsAppAppLink(ticketIds, phone, userName);
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
+
+    if (isMobile) {
+      const fallbackTimer = window.setTimeout(() => {
+        window.location.assign(webHref);
+      }, 1200);
+
+      window.addEventListener("pagehide", () => window.clearTimeout(fallbackTimer), { once: true });
+      window.location.href = appHref;
+      return;
+    }
+
+    window.open(webHref, "_blank", "noopener,noreferrer");
+  }
 
   // async function handleBookTickets() {
   //   if (!bookingName.trim()) {
@@ -523,15 +537,8 @@ export default function GamePage() {
 
     clearSelection();
 
-    const finalHref = buildWhatsAppLink(result.booked, adminPhone, bookingName.trim());
-
-    if (finalHref && result.booked.length > 0) {
-      if (waLinkRef.current) {
-        waLinkRef.current.href = finalHref;
-        waLinkRef.current.click();
-      } else {
-        window.location.href = finalHref;
-      }
+    if (result.booked.length > 0) {
+      openWhatsAppBooking(result.booked, adminPhone, bookingName.trim());
     }
 
     if (result.failed?.length > 0) {
@@ -942,7 +949,6 @@ export default function GamePage() {
       {activeModal === 'rules' && <RulesModal onClose={() => setActiveModal(null)} />}
       {activeModal === 'winners' && <WinnersModal onClose={() => setActiveModal(null)} />}
       {activeModal === 'bookings' && <BookingListModal tickets={tickets} onClose={() => setActiveModal(null)} />}
-      <a ref={waLinkRef} href="#" target="_blank" rel="noopener noreferrer" style={{ display: 'none' }} aria-hidden="true" />
     </div>
 
 

@@ -257,13 +257,28 @@ export async function getAllPastGames() {
 }
 
 // ── WhatsApp helper ────────────────────────────────────────
-export function buildWhatsAppLink(ticketIds, adminPhone, userName = "") {
+export function normalizeWhatsAppPhone(adminPhone = "") {
+  return String(adminPhone).replace(/\D/g, "");
+}
+
+function buildWhatsAppMessage(ticketIds, userName = "") {
   const ids = Array.isArray(ticketIds) ? ticketIds : [ticketIds];
   const nameIntro = userName ? `My name is ${userName}. ` : "";
-  const msg = encodeURIComponent(
+  return encodeURIComponent(
     `Hi! ${nameIntro}I'd like to book Tambola ${ids.length > 1 ? "tickets" : "ticket"} ${ids.join(", ")} for today's game. Please confirm my booking.`
   );
-  return `https://wa.me/${adminPhone}?text=${msg}`;
+}
+
+export function buildWhatsAppLink(ticketIds, adminPhone, userName = "") {
+  const phone = normalizeWhatsAppPhone(adminPhone);
+  const msg = buildWhatsAppMessage(ticketIds, userName);
+  return `https://api.whatsapp.com/send?phone=${phone}&text=${msg}`;
+}
+
+export function buildWhatsAppAppLink(ticketIds, adminPhone, userName = "") {
+  const phone = normalizeWhatsAppPhone(adminPhone);
+  const msg = buildWhatsAppMessage(ticketIds, userName);
+  return `whatsapp://send?phone=${phone}&text=${msg}`;
 }
 
 // ── Game ID helpers ────────────────────────────────────────
