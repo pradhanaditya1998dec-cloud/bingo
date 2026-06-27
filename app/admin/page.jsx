@@ -1027,16 +1027,15 @@ export default function AdminPage() {
                   <h2>Number Board — Click to Call</h2>
                   <p className="hint">
                     {game?.status === "live"
-                      ? "Click any uncalled number to call it manually while Auto Draw keeps running."
+                      ? "Number board of the current live game."
                       : game?.status === "closed"
                         ? "Game ended — create a new game to play again"
-                        : "Start the game to enable manual number selection"}
+                        : "Start the game to enable the number board"}
                   </p>
                   <NumberBoard
                     key={gameId ?? "empty"}
                     calledNumbers={calledArr}
                     interactive={game?.status === "live"}
-                    onPickNumber={enqueueDrawRequest}
                   />
                 </section>
 
