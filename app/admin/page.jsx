@@ -1212,7 +1212,7 @@ export default function AdminPage() {
               {activeRoute === "past" && (
                 <section className="admin-card" style={{ gridColumn: "1 / -1" }}>
                   <h2 style={{ marginBottom: 20 }}>Past Games</h2>
-                  <PastWinnersTable />
+                  <PastWinnersTable isSuperAdmin={isSuperAdmin} />
                 </section>
               )}
 

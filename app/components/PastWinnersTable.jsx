@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { getAllPastGames, deleteGame } from "../lib/gameStore";
 import { WIN_TYPES, WIN_LABELS, formatGameId, formatGameTime } from "../lib/tambola";
 
-export default function PastWinnersTable() {
+export default function PastWinnersTable({ isSuperAdmin = false }) {
   const [games, setGames] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -71,7 +71,7 @@ export default function PastWinnersTable() {
               {WIN_TYPES.map(type => (
                 <th key={type}>{WIN_LABELS[type]}</th>
               ))}
-              <th>Actions</th>
+              {isSuperAdmin && <th>Actions</th>}
             </tr>
           </thead>
           <tbody>
@@ -94,23 +94,25 @@ export default function PastWinnersTable() {
                     </td>
                   );
                 })}
-                <td data-label="Actions">
-                  <button
-                    onClick={() => handleDelete(game.id)}
-                    className="action-delete-btn"
-                    title="Delete Game"
-                  >
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="13" height="13" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                    <span style={{ marginLeft: '4px', verticalAlign: 'middle' }}>Delete</span>
-                  </button>
-                </td>
+                {isSuperAdmin && (
+                  <td data-label="Actions">
+                    <button
+                      onClick={() => handleDelete(game.id)}
+                      className="action-delete-btn"
+                      title="Delete Game"
+                    >
+                      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="13" height="13" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                      <span style={{ marginLeft: '4px', verticalAlign: 'middle' }}>Delete</span>
+                    </button>
+                  </td>
+                )}
               </tr>
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={3 + WIN_TYPES.length} className="td-empty">No games found</td>
+                <td colSpan={2 + WIN_TYPES.length + (isSuperAdmin ? 1 : 0)} className="td-empty">No games found</td>
               </tr>
             )}
           </tbody>
