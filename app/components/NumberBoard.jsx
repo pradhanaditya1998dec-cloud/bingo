@@ -95,7 +95,7 @@ export default function NumberBoard({
           <span className="nb-title-line" />
         </div>
 
-        {interactive && onPickNumber && (
+        {interactive && (
           <p className="nb-interactive-hint">Click any number to call it · or use Auto Draw</p>
         )}
 
@@ -110,7 +110,7 @@ export default function NumberBoard({
               <div
                 key={n}
                 onClick={() => handleClick(n)}
-                title={clickable && onPickNumber ? `Call ${n}` : ""}
+                title={clickable ? `Call ${n}` : ""}
                 className={`nb-cell${isCalled ? " nb-called" : ""}${isLatest ? " nb-latest" : ""}${clickable ? " nb-pickable" : ""}`}
                 style={{
                   "--cc": c.bg,

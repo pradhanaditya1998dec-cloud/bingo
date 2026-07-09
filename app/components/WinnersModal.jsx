@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { getAllPastGames } from "../lib/gameStore";
-import { WIN_TYPES, WIN_LABELS, reconstructGrid, formatGameId } from "../lib/tambola";
+import { WIN_TYPES, WIN_LABELS, reconstructGrid, formatGameId, formatGameTime } from "../lib/tambola";
 
 function GameWinnersCard({ game }) {
     const winners = game.winners || {};
@@ -13,7 +13,7 @@ function GameWinnersCard({ game }) {
         <div className="game-card" style={{ marginBottom: 16 }}>
             <div className="game-card-header">
                 <div>
-                    <h2 className="game-date">{formatGameId(game.id)}</h2>
+                    <h2 className="game-date">{formatGameTime(game.startedAt, game.id)}</h2>
                     <span className="game-stats">
                         {game.calledNumbers?.length || 0}&nbsp;numbers called
                         &nbsp;·&nbsp;

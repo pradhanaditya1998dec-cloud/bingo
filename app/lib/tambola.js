@@ -398,3 +398,281 @@ export const WIN_LABELS = {
   fullHouse:  "🏆 Full House",
   secondFullHouse: "🏆 2nd Full House",
 };
+
+export function formatGameTime(startedAt, gameId) {
+  if (startedAt) {
+    const d = new Date(startedAt);
+    const dateStr = d.toLocaleDateString("en-IN", {
+      day: "numeric", month: "short", year: "numeric",
+    });
+    const h = d.getHours();
+    const mn = d.getMinutes();
+    const ampm = h >= 12 ? "PM" : "AM";
+    const hour = h % 12 || 12;
+    return `${dateStr} · ${hour}:${String(mn).padStart(2, "0")} ${ampm}`;
+  }
+  return formatGameId(gameId);
+}
+
+export function getSharedNumbers(tickets, ticketIds, winType) {
+  if (ticketIds.length <= 1) return [];
+  
+  function getCategoryNumbers(ticket) {
+    const rows = reconstructGrid(ticket.numbers);
+    if (winType === "topLine") return rows[0].filter(n => n > 0);
+    if (winType === "middleLine") return rows[1].filter(n => n > 0);
+    if (winType === "lastLine") return rows[2].filter(n => n > 0);
+    if (winType === "corners") {
+      const corners = [];
+      const r0 = rows[0].filter(n => n > 0);
+      const r2 = rows[2].filter(n => n > 0);
+      if (r0.length) { corners.push(r0[0], r0[r0.length - 1]); }
+      if (r2.length) { corners.push(r2[0], r2[r2.length - 1]); }
+      return corners;
+    }
+    return rows.flat().filter(n => n > 0);
+  }
+
+  const sets = ticketIds.map(id => {
+    const ticket = tickets[id];
+    return ticket ? new Set(getCategoryNumbers(ticket)) : new Set();
+  });
+
+  let intersection = [...sets[0]];
+  for (let i = 1; i < sets.length; i++) {
+    intersection = intersection.filter(n => sets[i].has(n));
+  }
+  return intersection;
+}
+
+function tryGenerateRiggedSequence(tickets, riggedMap, enabledRules) {
+  const seq = [];
+  const remaining = new Set(Array.from({ length: 90 }, (_, i) => i + 1));
+
+  // Helper to get numbers for a category on a ticket
+  function getRequiredNumbers(ticket, winType) {
+    const rows = reconstructGrid(ticket.numbers);
+    if (winType === "topLine") return rows[0].filter(n => n > 0);
+    if (winType === "middleLine") return rows[1].filter(n => n > 0);
+    if (winType === "lastLine") return rows[2].filter(n => n > 0);
+    if (winType === "corners") {
+      const corners = [];
+      const r0 = rows[0].filter(n => n > 0);
+      const r2 = rows[2].filter(n => n > 0);
+      if (r0.length) { corners.push(r0[0], r0[r0.length - 1]); }
+      if (r2.length) { corners.push(r2[0], r2[r2.length - 1]); }
+      return corners;
+    }
+    if (winType === "quickSeven") {
+      return rows.flat().filter(n => n > 0).slice(0, 7);
+    }
+    if (winType === "fullHouse" || winType === "secondFullHouse") {
+      return rows.flat().filter(n => n > 0);
+    }
+    return [];
+  }
+
+  const order = ["quickSeven", "corners", "topLine", "middleLine", "lastLine", "fullHouse", "secondFullHouse"];
+  
+  // Flatten riggedMap to sequential or grouped steps
+  const steps = [];
+  
+  order.forEach(winType => {
+    const val = riggedMap[winType];
+    if (!val) return;
+    
+    // Normalize to array of ticket IDs
+    const tIds = Array.isArray(val) ? val.filter(Boolean) : [val].filter(Boolean);
+    if (tIds.length === 0) return;
+    
+    // If only 1 ticket, process as a simple step
+    if (tIds.length === 1) {
+      steps.push({ winType, ticketIds: tIds, sharedTrigger: null });
+      return;
+    }
+    
+    // Check if they share a number in this category
+    const shared = getSharedNumbers(tickets, tIds, winType);
+    if (shared.length > 0) {
+      // They share a number, so they can win together in a single step!
+      steps.push({ winType, ticketIds: tIds, sharedTrigger: shared[0] });
+    } else {
+      // They do not share a number, so they win sequentially
+      tIds.forEach(id => {
+        steps.push({ winType, ticketIds: [id], sharedTrigger: null });
+      });
+    }
+  });
+
+  if (steps.length === 0) {
+    // No rigging configured: return random 1-90
+    return Array.from({ length: 90 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
+  }
+
+  steps.forEach((step, index) => {
+    const { winType, ticketIds, sharedTrigger } = step;
+    
+    // Collect union of required numbers
+    const allReqs = new Set();
+    ticketIds.forEach(id => {
+      const t = tickets[id];
+      if (t) {
+        getRequiredNumbers(t, winType).forEach(n => allReqs.add(n));
+      }
+    });
+    
+    const reqNums = Array.from(allReqs);
+    // Find missing numbers not yet in seq
+    const missing = reqNums.filter(n => !seq.includes(n));
+    if (missing.length === 0) return; // already satisfied
+
+    // Determine target index for the winning call of this category step
+    const stepGap = 5 + Math.floor(Math.random() * 6); // random gap of 5 to 10 draws
+    let targetIndex = seq.length + stepGap;
+    
+    if (index === 0) {
+      // First winner: must be at least at draw 25-32
+      const randomStart = 25 + Math.floor(Math.random() * 8);
+      targetIndex = Math.max(targetIndex, randomStart);
+    }
+    
+    if (winType === "fullHouse" || winType === "secondFullHouse") {
+      // Full house: must be at least at draw 70-78
+      const randomFullHouse = 70 + Math.floor(Math.random() * 9);
+      targetIndex = Math.max(targetIndex, randomFullHouse);
+    }
+
+    // Determine the trigger number
+    let lastNum;
+    if (sharedTrigger && missing.includes(sharedTrigger)) {
+      lastNum = sharedTrigger;
+    } else {
+      const shuffledMissing = [...missing].sort(() => Math.random() - 0.5);
+      lastNum = shuffledMissing[shuffledMissing.length - 1];
+    }
+    
+    const otherReqs = missing.filter(n => n !== lastNum);
+
+    // Number of random spacing calls we need to insert before the winning trigger
+    let randomCount = targetIndex - seq.length - otherReqs.length - 1;
+    if (randomCount < 0) randomCount = 0;
+
+    // Pick random numbers that do not trigger subsequent steps prematurely
+    const reservedNums = new Set([lastNum, ...otherReqs]);
+    steps.slice(index + 1).forEach(subStep => {
+      subStep.ticketIds.forEach(id => {
+        const t = tickets[id];
+        if (t) {
+          getRequiredNumbers(t, subStep.winType).forEach(n => reservedNums.add(n));
+        }
+      });
+    });
+
+    const candidates = Array.from(remaining).filter(n => !reservedNums.has(n));
+    const shuffledCandidates = [...candidates].sort(() => Math.random() - 0.5);
+
+    // Pull randomCount numbers from candidates
+    const pulledRandom = [];
+    for (let i = 0; i < Math.min(randomCount, shuffledCandidates.length); i++) {
+      const num = shuffledCandidates[i];
+      pulledRandom.push(num);
+      remaining.delete(num);
+    }
+
+    // Mix the required numbers (except the trigger) and random spacing numbers randomly
+    const preMix = [...otherReqs, ...pulledRandom].sort(() => Math.random() - 0.5);
+    
+    // Add mixed numbers to the sequence
+    preMix.forEach(num => {
+      seq.push(num);
+      remaining.delete(num);
+    });
+
+    // Finally, push the lastNum (the trigger)
+    seq.push(lastNum);
+    remaining.delete(lastNum);
+  });
+
+  // Fill in any remaining numbers randomly
+  const left = Array.from(remaining).sort(() => Math.random() - 0.5);
+  seq.push(...left);
+
+  return seq;
+}
+
+export function generateRiggedSequence(tickets, riggedMap, enabledRules) {
+  const booked = Object.values(tickets).filter(t => t.status === "booked");
+  const order = ["quickSeven", "corners", "topLine", "middleLine", "lastLine", "fullHouse", "secondFullHouse"];
+
+  const checkRow = (row, called) => row.filter(n => n !== 0).every(n => called.has(n));
+  function checkTicketWins(ticket, called) {
+    const grid = reconstructGrid(ticket.numbers);
+    const topLine = checkRow(grid[0], called);
+    const middleLine = checkRow(grid[1], called);
+    const lastLine = checkRow(grid[2], called);
+    const firstRow = grid[0].filter(n => n !== 0);
+    const lastRow = grid[2].filter(n => n !== 0);
+    const corners = [firstRow[0], firstRow[firstRow.length - 1], lastRow[0], lastRow[lastRow.length - 1]].every(n => called.has(n));
+    const allNums = ticket.numbers.filter(n => n !== 0);
+    const quickSeven = allNums.filter(n => called.has(n)).length >= 7;
+    const fullHouse = topLine && middleLine && lastLine;
+    return { topLine, middleLine, lastLine, corners, quickSeven, fullHouse, secondFullHouse: fullHouse };
+  }
+
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const seq = tryGenerateRiggedSequence(tickets, riggedMap, enabledRules);
+    
+    // Validate if any non-rigged ticket accidentally wins BEFORE/WITH the rigged tickets
+    let isValid = true;
+    const called = new Set();
+    const firstWinCallOfCategory = {};
+    const firstWinnersOfCategory = {};
+
+    for (let i = 0; i < seq.length; i++) {
+      called.add(seq[i]);
+      for (const ticket of booked) {
+        const wins = checkTicketWins(ticket, called);
+        Object.entries(wins).forEach(([winType, didWin]) => {
+          if (!didWin) return;
+          if (!firstWinCallOfCategory[winType]) {
+            firstWinCallOfCategory[winType] = i + 1;
+            firstWinnersOfCategory[winType] = new Set([ticket.id]);
+          } else if (firstWinCallOfCategory[winType] === i + 1) {
+            firstWinnersOfCategory[winType].add(ticket.id);
+          }
+        });
+      }
+    }
+
+    // Check categories
+    for (const winType of order) {
+      if (!enabledRules[winType] && winType !== "fullHouse") continue;
+      
+      const targetIds = riggedMap[winType] 
+        ? (Array.isArray(riggedMap[winType]) ? riggedMap[winType] : [riggedMap[winType]])
+        : [];
+      
+      if (targetIds.length > 0) {
+        const actualWinners = firstWinnersOfCategory[winType] || new Set();
+        // 1. Every target ticket must have won
+        const allTargetWon = targetIds.every(id => actualWinners.has(id));
+        // 2. No other ticket should have won in this first win call
+        const onlyTargetWon = Array.from(actualWinners).every(id => targetIds.includes(id));
+        
+        if (!allTargetWon || !onlyTargetWon) {
+          isValid = false;
+          break;
+        }
+      }
+    }
+
+    if (isValid) {
+      return seq;
+    }
+  }
+
+  // Fallback if strict validation fails after 1000 attempts
+  return tryGenerateRiggedSequence(tickets, riggedMap, enabledRules);
+}
+
+

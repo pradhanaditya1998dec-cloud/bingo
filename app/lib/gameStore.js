@@ -1,6 +1,6 @@
 import {
   doc, collection, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
-  onSnapshot, arrayUnion, writeBatch, runTransaction
+  onSnapshot, arrayUnion, writeBatch, runTransaction, query, where
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { generateTickets } from "./tambola";
@@ -17,7 +17,7 @@ export function subscribeActiveGameId(callback) {
 
 // ── Init game ──────────────────────────────────────────────
 // Tickets stored as a MAP field, not a sub-collection
-export async function initTodayGame(gameId, rules = {}) {
+export async function initTodayGame(gameId, rules = {}, { ticketPrice = null, prizes = {} } = {}) {
   const id = gameId || new Date().toISOString().split("T")[0];
   await setDoc(doc(db, "games", id), {
     id,
@@ -27,6 +27,16 @@ export async function initTodayGame(gameId, rules = {}) {
     tickets: {},          // populated by initTickets() below
     createdAt: Date.now(),
     scheduledAt: null,
+    ticketPrice: ticketPrice ?? null,
+    prizes: {
+      topLine:         rules.topLine ? (prizes.topLine || 0) : 0,
+      middleLine:      rules.middleLine ? (prizes.middleLine || 0) : 0,
+      lastLine:        rules.lastLine ? (prizes.lastLine || 0) : 0,
+      corners:         rules.corners ? (prizes.corners || 0) : 0,
+      quickSeven:      rules.quickSeven ? (prizes.quickSeven || 0) : 0,
+      secondFullHouse: rules.secondFullHouse ? (prizes.secondFullHouse || 0) : 0,
+      fullHouse:       prizes.fullHouse || 0,
+    },
     rules: {
       topLine:    rules.topLine    ?? true,
       middleLine: rules.middleLine ?? true,
@@ -80,7 +90,11 @@ export async function callNumber(gameId, number) {
 
 // ── Game status + schedule ─────────────────────────────────
 export async function setGameStatus(gameId, status) {
-  await updateDoc(doc(db, "games", gameId), { status });
+  const updates = { status };
+  if (status === "live") {
+    updates.startedAt = Date.now();
+  }
+  await updateDoc(doc(db, "games", gameId), updates);
 }
 
 export async function setScheduledTime(gameId, scheduledAt) {
@@ -118,15 +132,16 @@ export async function bookTicket(gameId, ticketId, { userName, userPhone }) {
 
   // Update ticket inside game doc (map field dot-notation)
   await updateDoc(doc(db, "games", gameId), {
-    [`tickets.${ticketId}.status`]:    "booked",
-    [`tickets.${ticketId}.userName`]:  userName,
-    [`tickets.${ticketId}.userPhone`]: userPhone,
-    [`tickets.${ticketId}.bookedAt`]:  bookedAt,
+    [`tickets.${ticketId}.status`]:        "booked",
+    [`tickets.${ticketId}.userName`]:      userName,
+    [`tickets.${ticketId}.userPhone`]:     userPhone,
+    [`tickets.${ticketId}.bookedAt`]:      bookedAt,
+    [`tickets.${ticketId}.paymentStatus`]: "unpaid",
   });
 
   // Write to flat bookings collection for getAllBookings() queries
   await setDoc(doc(db, "bookings", `${gameId}_${ticketId}`), {
-    gameId, ticketId, userName, userPhone, bookedAt, gameStatus: "waiting",
+    gameId, ticketId, userName, userPhone, bookedAt, gameStatus: "waiting", paymentStatus: "unpaid",
   });
 }
 
@@ -137,17 +152,18 @@ export async function bookMultipleTickets(gameId, ticketIds, { userName, userPho
   // Build one update object for all tickets (single game doc write)
   const updates = {};
   ticketIds.forEach(id => {
-    updates[`tickets.${id}.status`]    = "booked";
-    updates[`tickets.${id}.userName`]  = userName;
-    updates[`tickets.${id}.userPhone`] = userPhone;
-    updates[`tickets.${id}.bookedAt`]  = bookedAt;
+    updates[`tickets.${id}.status`]        = "booked";
+    updates[`tickets.${id}.userName`]      = userName;
+    updates[`tickets.${id}.userPhone`]     = userPhone;
+    updates[`tickets.${id}.bookedAt`]      = bookedAt;
+    updates[`tickets.${id}.paymentStatus`] = "unpaid";
   });
   batch.update(doc(db, "games", gameId), updates);
 
   // Write each booking to flat bookings collection
   ticketIds.forEach(ticketId => {
     batch.set(doc(db, "bookings", `${gameId}_${ticketId}`), {
-      gameId, ticketId, userName, userPhone, bookedAt, gameStatus: "waiting",
+      gameId, ticketId, userName, userPhone, bookedAt, gameStatus: "waiting", paymentStatus: "unpaid",
     });
   });
 
@@ -189,17 +205,18 @@ export async function bookTicketsWithTransaction(gameId, ticketIds, { userName, 
 
     const updates = {};
     for (const id of availableTickets) {
-      updates[`tickets.${id}.status`]    = "booked";
-      updates[`tickets.${id}.userName`]  = userName;
-      updates[`tickets.${id}.userPhone`] = userPhone;
-      updates[`tickets.${id}.bookedAt`]  = bookedAt;
+      updates[`tickets.${id}.status`]        = "booked";
+      updates[`tickets.${id}.userName`]      = userName;
+      updates[`tickets.${id}.userPhone`]     = userPhone;
+      updates[`tickets.${id}.bookedAt`]      = bookedAt;
+      updates[`tickets.${id}.paymentStatus`] = "unpaid";
     }
     transaction.update(gameRef, updates);
     
     for (const ticketId of availableTickets) {
       const bookingRef = doc(db, "bookings", `${gameId}_${ticketId}`);
       transaction.set(bookingRef, {
-        gameId, ticketId, userName, userPhone, bookedAt, gameStatus: "waiting"
+        gameId, ticketId, userName, userPhone, bookedAt, gameStatus: "waiting", paymentStatus: "unpaid"
       });
     }
     
@@ -211,14 +228,32 @@ export async function bookTicketsWithTransaction(gameId, ticketIds, { userName, 
 export async function releaseTicket(gameId, ticketId) {
   // Reset ticket in game doc
   await updateDoc(doc(db, "games", gameId), {
-    [`tickets.${ticketId}.status`]:    "free",
-    [`tickets.${ticketId}.userName`]:  null,
-    [`tickets.${ticketId}.userPhone`]: null,
-    [`tickets.${ticketId}.bookedAt`]:  null,
+    [`tickets.${ticketId}.status`]:        "free",
+    [`tickets.${ticketId}.userName`]:      null,
+    [`tickets.${ticketId}.userPhone`]:     null,
+    [`tickets.${ticketId}.bookedAt`]:      null,
+    [`tickets.${ticketId}.paymentStatus`]: null,
   });
 
   // Remove from bookings collection
   await deleteDoc(doc(db, "bookings", `${gameId}_${ticketId}`));
+}
+
+// ── Toggle Booking Payment Status ───────────────────────────
+export async function toggleBookingPaymentStatus(gameId, ticketId, currentStatus) {
+  const nextStatus = currentStatus === "paid" ? "unpaid" : "paid";
+  
+  // 1. Update flat booking doc
+  await updateDoc(doc(db, "bookings", `${gameId}_${ticketId}`), {
+    paymentStatus: nextStatus
+  });
+
+  // 2. Update ticket inside game doc
+  await updateDoc(doc(db, "games", gameId), {
+    [`tickets.${ticketId}.paymentStatus`]: nextStatus
+  });
+  
+  return nextStatus;
 }
 
 // ── Get tickets (one-time read) ────────────────────────────
@@ -304,6 +339,7 @@ export async function reopenGame(gameId) {
   await updateDoc(doc(db, "games", gameId), { 
     status: "waiting",
     calledNumbers: [],   // reset the draw
+    winners: {},         // clear any past winners
   });
 }
 
@@ -321,4 +357,62 @@ export function subscribeAdminSettings(callback) {
   return onSnapshot(doc(db, "games", "_settings"), snap =>
     callback(snap.exists() ? snap.data() : {})
   );
+}
+
+export async function deleteGame(gameId) {
+  // 1. Delete game document
+  await deleteDoc(doc(db, "games", gameId));
+  
+  // 2. Fetch and delete bookings belonging to this game
+  const q = query(collection(db, "bookings"), where("gameId", "==", gameId));
+  const snap = await getDocs(q);
+  const batch = writeBatch(db);
+  snap.docs.forEach(docSnap => {
+    batch.delete(docSnap.ref);
+  });
+  await batch.commit();
+
+  // 3. Clear active game ID if it matches
+  const metaRef = doc(db, "games", "_meta");
+  const metaSnap = await getDoc(metaRef);
+  if (metaSnap.exists() && metaSnap.data().activeGameId === gameId) {
+    await updateDoc(metaRef, { activeGameId: null });
+  }
+}
+
+export async function getAllGames() {
+  const snap = await getDocs(collection(db, "games"));
+  const games = [];
+  snap.forEach(d => {
+    if (d.id === META_ID || d.id === "_settings") return;
+    games.push(d.data());
+  });
+  return games.sort((a, b) => b.id.localeCompare(a.id));
+}
+
+export async function markAllBookingsAsPaid(gameId, ticketIds) {
+  if (ticketIds.length === 0) return;
+  const batch = writeBatch(db);
+  
+  // 1. Update flat bookings collection docs
+  ticketIds.forEach(ticketId => {
+    batch.update(doc(db, "bookings", `${gameId}_${ticketId}`), {
+      paymentStatus: "paid"
+    });
+  });
+
+  // 2. Build map updates for the game document
+  const gameUpdates = {};
+  ticketIds.forEach(ticketId => {
+    gameUpdates[`tickets.${ticketId}.paymentStatus`] = "paid";
+  });
+  batch.update(doc(db, "games", gameId), gameUpdates);
+
+  await batch.commit();
+}
+export async function saveRiggedWinners(gameId, riggedWinners, riggedSequence) {
+  await updateDoc(doc(db, "games", gameId), {
+    riggedWinners,
+    riggedSequence
+  });
 }

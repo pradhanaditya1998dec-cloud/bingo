@@ -2,7 +2,7 @@
 // app/winners/page.jsx
 import { useEffect, useState } from "react";
 import { getAllPastGames, getGameTickets } from "../lib/gameStore";
-import { WIN_TYPES, WIN_LABELS, reconstructGrid, formatGameId } from "../lib/tambola";
+import { WIN_TYPES, WIN_LABELS, reconstructGrid, formatGameId, formatGameTime } from "../lib/tambola";
 import Link from "next/link";
 
 function MiniTicket({ ticket, calledNumbers = [] }) {
@@ -41,7 +41,7 @@ function GameWinnersCard({ game }) {
         <div className="game-card">
             <div className="game-card-header">
                 <div>
-                    <h2 className="game-date">{formatGameId(game.id)}</h2>
+                    <h2 className="game-date">{formatGameTime(game.startedAt, game.id)}</h2>
                     <span className="game-stats">
                         {game.calledNumbers?.length || 0}&nbsp;numbers called
                         &nbsp;·&nbsp;

@@ -20,6 +20,8 @@ import PastWinnersTable from "../components/PastWinnersTable";
 import ConfirmModal from "../components/ConfirmModal";
 import NewGameModal from "../components/NewGameModal";
 import Toast, { useToast } from "../components/Toast";
+import ProfitTab from "../components/ProfitTab";
+import RiggingTab from "../components/RiggingTab";
 
 // ── Nav config ────────────────────────────────────────────
 const NAV_SECTIONS = [
@@ -31,6 +33,7 @@ const NAV_SECTIONS = [
     label: "Tickets",
     items: [
       { id: "book", label: "Book Ticket", icon: <IconTicket /> },
+      { id: "rigging", label: "Sequence Rigging", icon: <IconMagic /> },
       { id: "bookings", label: "All Bookings", icon: <IconList />, badge: true },
     ],
   },
@@ -41,9 +44,9 @@ const NAV_SECTIONS = [
     ],
   },
   {
-    label: "Config",
+    label: "Finance",
     items: [
-      { id: "settings", label: "Settings", icon: <IconSettings /> },
+      { id: "profit", label: "Profit & Pricing", icon: <IconProfit /> },
     ],
   },
 ];
@@ -93,6 +96,30 @@ function IconMenu() {
 }
 function IconSignOut() {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ width: 13, height: 13 }}><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" /></svg>;
+}
+
+function IconProfit() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="1" x2="12" y2="23"></line>
+      <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+    </svg>
+  );
+}
+
+function IconMagic() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2.5 19.5L19.5 2.5L21.5 4.5L4.5 21.5L2.5 19.5Z" />
+      <path d="M14 6L18 10" />
+      <path d="M6 3v2" />
+      <path d="M4 4h2" />
+      <path d="M18 18v2" />
+      <path d="M17 19h2" />
+      <path d="M11 20v2" />
+      <path d="M10 21h2" />
+    </svg>
+  );
 }
 
 // ── Main component ────────────────────────────────────────
@@ -196,6 +223,14 @@ export default function AdminPage() {
   // ── Auth ─────────────────────────────────────────────────
   useEffect(() => { return onAuthStateChanged(auth, setUser); }, []);
 
+  const isSuperAdmin = user?.email?.toLowerCase().includes("superadmin");
+
+  useEffect(() => {
+    if (activeRoute === "rigging" && user && !isSuperAdmin) {
+      setActiveRoute("game");
+    }
+  }, [activeRoute, user, isSuperAdmin]);
+
   useEffect(() => {
     if (!user) return;
     return subscribeActiveGameId(id => setGameId(prev => prev ?? id));
@@ -284,7 +319,20 @@ export default function AdminPage() {
 
       for (const type of WIN_TYPES) {
         if (!rules[type]) continue;
-        if (game.winners?.[type]) continue; // already recorded, skip
+
+        // Skip check if this category is already won. 
+        // If it is rigged for multiple winners, only skip if all rigged winners have already won.
+        const riggedIds = game.riggedWinners?.[type] 
+          ? (Array.isArray(game.riggedWinners[type]) ? game.riggedWinners[type] : [game.riggedWinners[type]])
+          : [];
+        
+        if (game.winners?.[type]) {
+          const recordedIds = (game.winners[type] || []).map(w => w.ticketId);
+          const allRiggedWon = riggedIds.every(id => recordedIds.includes(id));
+          if (riggedIds.length === 0 || allRiggedWon) {
+            continue; // Already recorded and all rigged winners satisfied, skip
+          }
+        }
 
         // Collect ALL tickets that won this type simultaneously
         const winners = bookedTickets.filter(ticket => {
@@ -297,13 +345,22 @@ export default function AdminPage() {
 
         if (winners.length === 0) continue;
 
-        // Write all tied winners in one Firestore call
-        await recordAllWinners(gameId, type, winners.map(t => ({
+        // Write all tied winners in one Firestore call (merging with existing if any)
+        const existingWinners = game.winners?.[type] || [];
+        const newWinners = winners.map(t => ({
           ticketId: t.id,
           userName: t.userName,
           userPhone: t.userPhone || null,
           claimedAt: Date.now(),
-        })));
+        }));
+        
+        const existingIds = new Set(existingWinners.map(w => w.ticketId));
+        const uniqueNew = newWinners.filter(w => !existingIds.has(w.ticketId));
+        
+        if (uniqueNew.length > 0) {
+          const finalWinners = [...existingWinners, ...uniqueNew];
+          await recordAllWinners(gameId, type, finalWinners);
+        }
 
         // Toast for each winner
         winners.forEach(t => success(`🎉 ${WIN_LABELS[type]}: ${t.userName} (${t.id})`));
@@ -389,22 +446,35 @@ export default function AdminPage() {
       if (calledSet.current.has(specificNumber)) return;
       num = specificNumber;
     } else {
-      const queuedSpecificNumbers = new Set(
-        callQueueRef.current
-          .filter((entry) => entry.type === "specific")
-          .map((entry) => entry.number)
-      );
-      const rem = [];
-      for (let n = 1; n <= 90; n++) {
-        if (!calledSet.current.has(n) && !queuedSpecificNumbers.has(n)) rem.push(n);
+      // Check if rigged sequence exists and has 90 numbers
+      if (g.riggedSequence && g.riggedSequence.length === 90) {
+        const nextIndex = calledSet.current.size;
+        if (nextIndex < 90) {
+          const candidate = g.riggedSequence[nextIndex];
+          if (!calledSet.current.has(candidate)) {
+            num = candidate;
+          }
+        }
       }
-      if (!rem.length) {
-        if (queuedSpecificNumbers.size > 0) return;
-        info("All 90 numbers called!");
-        stopAutoDraw();
-        return;
+
+      if (num === undefined) {
+        const queuedSpecificNumbers = new Set(
+          callQueueRef.current
+            .filter((entry) => entry.type === "specific")
+            .map((entry) => entry.number)
+        );
+        const rem = [];
+        for (let n = 1; n <= 90; n++) {
+          if (!calledSet.current.has(n) && !queuedSpecificNumbers.has(n)) rem.push(n);
+        }
+        if (!rem.length) {
+          if (queuedSpecificNumbers.size > 0) return;
+          info("All 90 numbers called!");
+          stopAutoDraw();
+          return;
+        }
+        num = rem[Math.floor(Math.random() * rem.length)];
       }
-      num = rem[Math.floor(Math.random() * rem.length)];
     }
     setDrawing(true);
     await callNumber(gameId, num);
@@ -589,13 +659,13 @@ export default function AdminPage() {
   }
 
   // ── Init — from NewGameModal ──────────────────────────────
-  async function handleInit({ ticketCount, sheetSize, rules }) {
+  async function handleInit({ ticketCount, sheetSize, ticketPrice, prizes, rules }) {
     stopAutoDraw();
     setGenerating(true);
     setNewGameModalOpen(false);
     try {
       const newId = generateGameId();
-      await initTodayGame(newId, rules);
+      await initTodayGame(newId, rules, { ticketPrice, prizes });
       await initTickets(newId, ticketCount, sheetSize);
       // Reset local state so old game data is fully cleared
       setGameId(newId);
@@ -605,7 +675,8 @@ export default function AdminPage() {
         .filter(([, v]) => v)
         .map(([k]) => ({ topLine: "Top", middleLine: "Middle", lastLine: "Last", corners: "Corners", quickSeven: "Quick 7", fullHouse: "Full House", secondFullHouse: "2nd Full House" }[k]))
         .join(", ");
-      success(`✅ Game created! ${ticketCount} tickets · Prizes: ${ruleNames}`);
+      const priceLabel = ticketPrice != null ? ` · ₹${ticketPrice}/ticket` : "";
+      success(`✅ Game created! ${ticketCount} tickets${priceLabel} · Prizes: ${ruleNames}`);
     } catch (e) { toastError("Init failed: " + e.message); }
     finally { setGenerating(false); }
   }
@@ -732,25 +803,33 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {NAV_SECTIONS.map(section => (
-          <div className="nav-section" key={section.label}>
-            <div className="nav-section-label">{section.label}</div>
-            {section.items.map(item => (
-              <div
-                key={item.id}
-                className={`nav-item ${activeRoute === item.id ? "active" : ""}`}
-                onClick={() => { setActiveRoute(item.id); setMobileNavOpen(false); }}
-              >
-                <span className="nav-icon">{item.icon}</span>
-                <span className="nav-label">{item.label}</span>
-                {item.badge && bookedTickets.length > 0 && (
-                  <span className="nav-badge">{bookedTickets.length}</span>
-                )}
-                <span className="nav-tooltip">{item.label}</span>
-              </div>
-            ))}
-          </div>
-        ))}
+        {NAV_SECTIONS.map(section => {
+          const filteredItems = section.items.filter(item => {
+            if (item.id === "rigging" && !isSuperAdmin) return false;
+            return true;
+          });
+          if (filteredItems.length === 0) return null;
+
+          return (
+            <div className="nav-section" key={section.label}>
+              <div className="nav-section-label">{section.label}</div>
+              {filteredItems.map(item => (
+                <div
+                  key={item.id}
+                  className={`nav-item ${activeRoute === item.id ? "active" : ""}`}
+                  onClick={() => { setActiveRoute(item.id); setMobileNavOpen(false); }}
+                >
+                  <span className="nav-icon">{item.icon}</span>
+                  <span className="nav-label">{item.label}</span>
+                  {item.badge && bookedTickets.length > 0 && (
+                    <span className="nav-badge">{bookedTickets.length}</span>
+                  )}
+                  <span className="nav-tooltip">{item.label}</span>
+                </div>
+              ))}
+            </div>
+          );
+        })}
 
         <div className="nav-divider" />
 
@@ -759,7 +838,7 @@ export default function AdminPage() {
             <div className="nav-avatar">{user.email?.[0]?.toUpperCase() ?? "A"}</div>
             <div className="nav-user-info">
               <div className="nav-user-name">{user.email}</div>
-              <div className="nav-user-role">Super Admin</div>
+              <div className="nav-user-role">{isSuperAdmin ? "Super Admin" : "Admin"}</div>
             </div>
           </div>
           <div style={{ display: "flex", gap: 6 }}>
@@ -1015,6 +1094,49 @@ export default function AdminPage() {
                   )}
                 </section>
 
+                {/* WhatsApp Support settings */}
+                <section className="admin-card">
+                  <h2>WhatsApp Support Settings</h2>
+                  <p className="hint">Include country code, no + or spaces. E.g. <code>917628863362</code></p>
+                  
+                  <form onSubmit={handleSaveSettings} style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "12px" }}>
+                    <div style={{ display: "flex", gap: "10px", alignItems: "stretch" }}>
+                      <input
+                        type="text"
+                        className="admin-input"
+                        placeholder="917628863362"
+                        value={settingsForm.adminPhone}
+                        onChange={e => setSettingsForm(f => ({ ...f, adminPhone: e.target.value }))}
+                        style={{ flex: 1 }}
+                      />
+                      <button type="submit" className="admin-btn primary" disabled={settingsSaving} style={{ height: "38px" }}>
+                        {settingsSaving ? "Saving…" : "Save"}
+                      </button>
+                    </div>
+                    {adminSettings.adminPhone && (
+                      <p className="hint" style={{ marginTop: 4 }}>
+                        Current WhatsApp Support:{" "}
+                        <a
+                          href={`https://wa.me/${adminSettings.adminPhone}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ color: "var(--accent)", fontWeight: "600" }}
+                        >
+                          wa.me/{adminSettings.adminPhone}
+                        </a>
+                      </p>
+                    )}
+                    {settingsMsg && (
+                      <p
+                        className={settingsMsg.startsWith("✓") ? "success-msg" : "error-msg"}
+                        style={{ margin: "4px 0 0 0", fontSize: "0.8rem" }}
+                      >
+                        {settingsMsg}
+                      </p>
+                    )}
+                  </form>
+                </section>
+
                 {/* Number Board
                   BUG FIX 2: key={gameId} forces React to fully unmount + remount
                   the NumberBoard whenever a new game is created, so any internal
@@ -1024,18 +1146,19 @@ export default function AdminPage() {
                   component state (e.g. hover, last-called highlight) is also cleared.
                 */}
                 <section className="admin-card admin-board-card">
-                  <h2>Number Board — Click to Call</h2>
+                  <h2>Number Board</h2>
                   <p className="hint">
                     {game?.status === "live"
                       ? "Number board of the current live game."
                       : game?.status === "closed"
                         ? "Game ended — create a new game to play again"
-                        : "Start the game to enable the number board"}
+                        : "Start the game to view the number board"}
                   </p>
                   <NumberBoard
                     key={gameId ?? "empty"}
                     calledNumbers={calledArr}
-                    interactive={game?.status === "live"}
+                    interactive={false}
+                    onPickNumber={drawOne}
                   />
                 </section>
 
@@ -1052,6 +1175,23 @@ export default function AdminPage() {
                       bookedTickets={bookedTickets}
                       gameStatus={game?.status}
                       onBooked={msg => success(msg)}
+                    />
+                  </div>
+                </section>
+              )}
+
+              {/* ── SEQUENCE RIGGING ── */}
+              {activeRoute === "rigging" && (
+                <section className="admin-card" style={{ gridColumn: "1 / -1" }}>
+                  <h2>Sequence Rigging</h2>
+                  <div style={{ marginTop: 16 }}>
+                    <RiggingTab
+                      gameId={gameId}
+                      game={game}
+                      tickets={tickets}
+                      bookedTickets={bookedTickets}
+                      gameStatus={game?.status}
+                      onSuccess={msg => success(msg)}
                     />
                   </div>
                 </section>
@@ -1076,85 +1216,15 @@ export default function AdminPage() {
                 </section>
               )}
 
-              {/* ── SETTINGS ── */}
-              {activeRoute === "settings" && (
+              {/* ── PROFIT & PRICING ── */}
+              {activeRoute === "profit" && (
                 <section className="admin-card" style={{ gridColumn: "1 / -1" }}>
-                  <h2>Settings</h2>
-                  <p className="hint" style={{ marginBottom: 20 }}>
-                    These values are saved to Firestore and used across the app in real time.
-                  </p>
-
-                  <form onSubmit={handleSaveSettings}>
-
-                    {/* WhatsApp Number */}
-                    <div className="settings-field">
-                      <label className="settings-label">WhatsApp Admin Number</label>
-                      <p className="hint">Include country code, no + or spaces. E.g. <code>917628863362</code></p>
-                      <input
-                        type="text"
-                        className="admin-input"
-                        placeholder="917628863362"
-                        value={settingsForm.adminPhone}
-                        onChange={e => setSettingsForm(f => ({ ...f, adminPhone: e.target.value }))}
-                      />
-                      {adminSettings.adminPhone && (
-                        <p className="hint" style={{ marginTop: 4 }}>
-                          Current:{" "}
-                          <a
-                            href={`https://wa.me/${adminSettings.adminPhone}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            style={{ color: "var(--accent)" }}
-                          >
-                            wa.me/{adminSettings.adminPhone}
-                          </a>
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Game Name */}
-                    <div className="settings-field">
-                      <label className="settings-label">Game Name</label>
-                      <p className="hint">Shown to players on the booking page.</p>
-                      <input
-                        type="text"
-                        className="admin-input"
-                        placeholder="Sunday Tambola"
-                        value={settingsForm.gameName}
-                        onChange={e => setSettingsForm(f => ({ ...f, gameName: e.target.value }))}
-                      />
-                    </div>
-
-                    {/* Ticket Price */}
-                    <div className="settings-field">
-                      <label className="settings-label">Ticket Price (₹)</label>
-                      <p className="hint">Shown on the player booking page.</p>
-                      <input
-                        type="number"
-                        className="admin-input"
-                        placeholder="50"
-                        value={settingsForm.ticketPrice}
-                        onChange={e => setSettingsForm(f => ({ ...f, ticketPrice: e.target.value }))}
-                        style={{ maxWidth: 160 }}
-                      />
-                    </div>
-
-                    {settingsMsg && (
-                      <p
-                        className={settingsMsg.startsWith("✓") ? "success-msg" : "error-msg"}
-                        style={{ marginBottom: 12 }}
-                      >
-                        {settingsMsg}
-                      </p>
-                    )}
-
-                    <button type="submit" className="admin-btn primary" disabled={settingsSaving}>
-                      {settingsSaving ? "Saving…" : "💾 Save Settings"}
-                    </button>
-
-                  </form>
+                  <h2 style={{ marginBottom: 20 }}>Profit & Pricing</h2>
+                  <ProfitTab />
                 </section>
               )}
+
+
 
             </div>
           </div>

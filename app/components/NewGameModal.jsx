@@ -14,6 +14,16 @@ const RULE_CONFIG = [
 export default function NewGameModal({ open, onConfirm, onCancel }) {
   const [ticketCount, setTicketCount] = useState(50);
   const [sheetSize, setSheetSize] = useState(6);
+  const [ticketPrice, setTicketPrice] = useState("");
+  const [rulePrices, setRulePrices] = useState({
+    topLine: "",
+    middleLine: "",
+    lastLine: "",
+    corners: "",
+    quickSeven: "",
+    secondFullHouse: "",
+    fullHouse: "",
+  });
   const [rules, setRules] = useState({
     topLine: true, middleLine: true, lastLine: true, corners: false, quickSeven: true, secondFullHouse: false,
   });
@@ -25,24 +35,63 @@ export default function NewGameModal({ open, onConfirm, onCancel }) {
     setRules((r) => ({ ...r, [key]: !r[key] }));
   }
 
+  function handlePriceChange(key, val) {
+    setRulePrices((prev) => ({ ...prev, [key]: val }));
+  }
+
   function handleConfirm() {
     setError("");
     const count = parseInt(ticketCount, 10);
-    const size = parseInt(sheetSize, 10);
     if (isNaN(count) || count < 1 || count > 500) {
       setError("Ticket count must be between 1 and 500.");
       return;
     }
-    if (isNaN(size) || size < 2 || size > 9) {
-      setError("Sheet size must be between 2 and 9.");
+    const price = ticketPrice === "" ? null : parseFloat(ticketPrice);
+    if (ticketPrice !== "" && (isNaN(price) || price < 0)) {
+      setError("Ticket price must be a valid positive number.");
       return;
     }
-    onConfirm({ ticketCount: count, sheetSize: size, rules: { ...rules, fullHouse: true } });
+
+    // Convert rule prices to numbers or null/0
+    const parsedPrices = {};
+    Object.keys(rulePrices).forEach((key) => {
+      const isRuleActive = key === "fullHouse" || rules[key];
+      const pVal = rulePrices[key];
+      parsedPrices[key] = isRuleActive && pVal !== "" ? parseFloat(pVal) || 0 : 0;
+    });
+
+    onConfirm({
+      ticketCount: count,
+      sheetSize,
+      ticketPrice: price,
+      prizes: parsedPrices,
+      rules: { ...rules, fullHouse: true }
+    });
   }
 
   const totalSheets = Math.ceil((parseInt(ticketCount, 10) || 0) / (parseInt(sheetSize, 10) || 6));
   const activeRules = RULE_CONFIG.filter((r) => rules[r.key]).map((r) => r.label);
   activeRules.push("Full House");
+
+  const isCreateDisabled = () => {
+    // 1. Ticket Price must be entered and valid
+    if (ticketPrice === "" || isNaN(parseFloat(ticketPrice)) || parseFloat(ticketPrice) <= 0) {
+      return true;
+    }
+    
+    // 2. Active rules (including Full House) must have pricing entered
+    const activeRuleKeys = Object.keys(rules).filter(k => rules[k]);
+    activeRuleKeys.push("fullHouse");
+    
+    for (const key of activeRuleKeys) {
+      const priceVal = rulePrices[key];
+      if (priceVal === "" || isNaN(parseFloat(priceVal)) || parseFloat(priceVal) <= 0) {
+        return true;
+      }
+    }
+    
+    return false;
+  };
 
   return (
     <div className="modal-backdrop" onClick={onCancel}>
@@ -58,82 +107,98 @@ export default function NewGameModal({ open, onConfirm, onCancel }) {
         <div className="ngm-section-wrapper">
           <div className="ngm-section">
             <h3 className="ngm-section-title">Ticket Configuration</h3>
-            <div className="ngm-fields">
-              <div className="ngm-field">
-                <label className="ngm-label">Number of Tickets</label>
-                <div className="ngm-input-row">
-                  <button className="ngm-stepper" onClick={() => setTicketCount((c) => Math.max(1, +c - 1))}>-</button>
-                  <input
-                    type="number"
-                    min="1"
-                    max="500"
-                    value={ticketCount}
-                    onChange={(e) => setTicketCount(e.target.value)}
-                    className="admin-input ngm-number-input"
-                  />
-                  <button className="ngm-stepper" onClick={() => setTicketCount((c) => Math.min(500, +c + 1))}>+</button>
-                </div>
-              </div>
-              <div className="ngm-field">
-                <label className="ngm-label">Tickets per Sheet</label>
-                <div className="ngm-input-row">
-                  <button className="ngm-stepper" onClick={() => setSheetSize((s) => Math.max(2, +s - 1))}>-</button>
-                  <input
-                    type="number"
-                    min="2"
-                    max="9"
-                    value={sheetSize}
-                    onChange={(e) => setSheetSize(e.target.value)}
-                    className="admin-input ngm-number-input"
-                  />
-                  <button className="ngm-stepper" onClick={() => setSheetSize((s) => Math.min(9, +s + 1))}>+</button>
-                </div>
-                <p className="ngm-field-hint">Numbers won't repeat within a sheet (max 9)</p>
+            <div className="ngm-field" style={{ marginBottom: 14 }}>
+              <label className="ngm-label">Number of Tickets</label>
+              <div className="ngm-input-row">
+                <button className="ngm-stepper" onClick={() => setTicketCount((c) => Math.max(1, +c - 1))}>-</button>
+                <input
+                  type="number"
+                  min="1"
+                  max="500"
+                  value={ticketCount}
+                  onChange={(e) => setTicketCount(e.target.value)}
+                  className="admin-input ngm-number-input-full"
+                />
+                <button className="ngm-stepper" onClick={() => setTicketCount((c) => Math.min(500, +c + 1))}>+</button>
               </div>
             </div>
-            <div className="ngm-summary">
-              <span className="ngm-summary-item"><strong>{ticketCount}</strong> tickets</span>
-              <span className="ngm-summary-dot">·</span>
-              <span className="ngm-summary-item"><strong>{totalSheets}</strong> sheet{totalSheets !== 1 ? "s" : ""}</span>
-              <span className="ngm-summary-dot">·</span>
-              <span className="ngm-summary-item">up to <strong>{sheetSize}</strong> per sheet</span>
+
+            <div className="ngm-field">
+              <label className="ngm-label">Ticket Price (₹)</label>
+              <div className="price-input-container">
+                <span className="ngm-currency">₹</span>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="e.g. 50"
+                  value={ticketPrice}
+                  onChange={(e) => setTicketPrice(e.target.value)}
+                  className="ngm-price-input"
+                />
+              </div>
             </div>
           </div>
 
           <div className="ngm-section">
             <h3 className="ngm-section-title">Winning Categories</h3>
-            <p className="ngm-section-hint">Toggle which categories can win prizes in this game</p>
 
             <div className="ngm-rules">
               {RULE_CONFIG.map((rule) => (
                 <div
                   key={rule.key}
                   className={`ngm-rule ${rules[rule.key] ? "active" : ""}`}
-                  onClick={() => toggleRule(rule.key)}
                 >
-                  <div className="ngm-rule-left">
-                    <span className="ngm-rule-icon">{rule.icon}</span>
-                    <div>
+                  <div className="ngm-rule-top" onClick={() => toggleRule(rule.key)}>
+                    <div className="ngm-rule-left">
+                      <span className="ngm-rule-icon">{rule.icon}</span>
                       <div className="ngm-rule-label">{rule.label}</div>
-                      <div className="ngm-rule-desc">{rule.desc}</div>
+                    </div>
+                    <div className={`ngm-toggle ${rules[rule.key] ? "on" : "off"}`}>
+                      <div className="ngm-toggle-thumb" />
                     </div>
                   </div>
-                  <div className={`ngm-toggle ${rules[rule.key] ? "on" : "off"}`}>
-                    <div className="ngm-toggle-thumb" />
-                  </div>
+
+                  {rules[rule.key] && (
+                    <div className="ngm-rule-bottom" onClick={(e) => e.stopPropagation()}>
+                      <div className="ngm-rule-price-input-wrap">
+                        <span className="ngm-rule-price-symbol">Prize: ₹</span>
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="Enter prize amount"
+                          value={rulePrices[rule.key]}
+                          onChange={(e) => handlePriceChange(rule.key, e.target.value)}
+                          className="ngm-rule-price-input"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
 
               <div className="ngm-rule always-on">
-                <div className="ngm-rule-left">
-                  <span className="ngm-rule-icon">🏆</span>
-                  <div>
+                <div className="ngm-rule-top">
+                  <div className="ngm-rule-left">
+                    <span className="ngm-rule-icon">🏆</span>
                     <div className="ngm-rule-label">Full House</div>
-                    <div className="ngm-rule-desc">All three rows marked — always enabled</div>
+                  </div>
+                  <div className="ngm-toggle on locked">
+                    <div className="ngm-toggle-thumb" />
                   </div>
                 </div>
-                <div className="ngm-toggle on locked">
-                  <div className="ngm-toggle-thumb" />
+
+                <div className="ngm-rule-bottom" onClick={(e) => e.stopPropagation()}>
+                  <div className="ngm-rule-price-input-wrap">
+                    <span className="ngm-rule-price-symbol">Prize: ₹</span>
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="Enter prize amount"
+                      value={rulePrices.fullHouse}
+                      onChange={(e) => handlePriceChange("fullHouse", e.target.value)}
+                      className="ngm-rule-price-input"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -151,8 +216,12 @@ export default function NewGameModal({ open, onConfirm, onCancel }) {
 
         <div className="ngm-actions">
           <button onClick={onCancel} className="admin-btn outline">Cancel</button>
-          <button onClick={handleConfirm} className="admin-btn primary ngm-confirm-btn">
-            ⚙️ Create Game
+          <button 
+            onClick={handleConfirm} 
+            className="admin-btn primary ngm-confirm-btn"
+            disabled={isCreateDisabled()}
+          >
+             Create Game
           </button>
         </div>
       </div>

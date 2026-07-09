@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { bookMultipleTickets, releaseTicket } from "../lib/gameStore";
 
+
 function initials(name) {
   return name?.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() || "?";
 }

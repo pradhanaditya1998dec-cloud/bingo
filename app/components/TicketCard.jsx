@@ -55,7 +55,7 @@ export default function TicketCard({
             {row.map((num, ci) => (
               <div
                 key={ci}
-                className={`ticket-cell ${num === null ? "blank" :
+                className={`ticket-cell ${num === null || num === 0 ? "blank" :
                   called.has(num) ? "marked" : "active"
                   }`}
               >

@@ -1,8 +1,8 @@
 "use client";
 // app/admin/components/PastWinnersTable.jsx
 import { useState, useEffect, useMemo } from "react";
-import { getAllPastGames } from "../lib/gameStore";
-import { WIN_TYPES, WIN_LABELS, formatGameId } from "../lib/tambola";
+import { getAllPastGames, deleteGame } from "../lib/gameStore";
+import { WIN_TYPES, WIN_LABELS, formatGameId, formatGameTime } from "../lib/tambola";
 
 export default function PastWinnersTable() {
   const [games, setGames] = useState([]);
@@ -12,6 +12,17 @@ export default function PastWinnersTable() {
   useEffect(() => {
     getAllPastGames().then(g => { setGames(g); setLoading(false); });
   }, []);
+
+  async function handleDelete(gameId) {
+    if (window.confirm(`Are you sure you want to permanently delete game ${gameId}? This will also delete all ticket bookings for this game.`)) {
+      try {
+        await deleteGame(gameId);
+        setGames(prev => prev.filter(g => g.id !== gameId));
+      } catch (e) {
+        alert("Failed to delete game: " + e.message);
+      }
+    }
+  }
 
   const filtered = useMemo(() => {
     if (!search.trim()) return games;
@@ -36,7 +47,7 @@ export default function PastWinnersTable() {
   return (
     <div className="sp-section">
       <div className="sp-section-header">
-        <h3 className="sp-section-title">Past Winners</h3>
+        <h3 className="sp-section-title">Past Games</h3>
         <span className="sp-count-badge">{filtered.length} games</span>
       </div>
 
@@ -60,19 +71,20 @@ export default function PastWinnersTable() {
               {WIN_TYPES.map(type => (
                 <th key={type}>{WIN_LABELS[type]}</th>
               ))}
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((game) => (
               <tr key={game.id}>
-                <td><span className="mono-chip sm">{formatGameId(game.id)}</span></td>
-                <td className="td-center">{game.calledNumbers?.length || 0}</td>
+                <td data-label="Date & Time"><span className="mono-chip sm">{formatGameTime(game.startedAt, game.id)}</span></td>
+                <td data-label="Numbers Called" className="td-center">{game.calledNumbers?.length || 0}</td>
                 {WIN_TYPES.map(type => {
                   const w = game.winners?.[type];
-                  if (!w) return <td key={type} className="td-empty-cell">—</td>;
+                  if (!w) return <td key={type} data-label={WIN_LABELS[type]} className="td-empty-cell">—</td>;
                   const list = Array.isArray(w) ? w : [w];
                   return (
-                    <td key={type}>
+                    <td key={type} data-label={WIN_LABELS[type]}>
                       {list.map((winner, i) => (
                         <div key={i} className="winner-cell">
                           <span className="td-name">{winner.userName}</span>
@@ -82,11 +94,23 @@ export default function PastWinnersTable() {
                     </td>
                   );
                 })}
+                <td data-label="Actions">
+                  <button
+                    onClick={() => handleDelete(game.id)}
+                    className="action-delete-btn"
+                    title="Delete Game"
+                  >
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="13" height="13" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    <span style={{ marginLeft: '4px', verticalAlign: 'middle' }}>Delete</span>
+                  </button>
+                </td>
               </tr>
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={2 + WIN_TYPES.length} className="td-empty">No games found</td>
+                <td colSpan={3 + WIN_TYPES.length} className="td-empty">No games found</td>
               </tr>
             )}
           </tbody>
