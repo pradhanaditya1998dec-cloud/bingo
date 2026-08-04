@@ -9,6 +9,7 @@ import {
   recordAllWinners,
   reopenGame,
   subscribeAdminSettings, saveAdminSettings,
+  updateGameRulesAndPrizes,
 } from "../lib/gameStore";
 import { checkWinners, WIN_TYPES, WIN_LABELS } from "../lib/tambola";
 import { auth } from "../lib/firebase";
@@ -19,6 +20,7 @@ import BookingsTable from "../components/BookingsTable";
 import PastWinnersTable from "../components/PastWinnersTable";
 import ConfirmModal from "../components/ConfirmModal";
 import NewGameModal from "../components/NewGameModal";
+import EditGameModal from "../components/EditGameModal";
 import Toast, { useToast } from "../components/Toast";
 import ProfitTab from "../components/ProfitTab";
 import RiggingTab from "../components/RiggingTab";
@@ -177,6 +179,7 @@ export default function AdminPage() {
 
   // Modals
   const [newGameModalOpen, setNewGameModalOpen] = useState(false);
+  const [editGameModalOpen, setEditGameModalOpen] = useState(false);
   const [modal, setModal] = useState({ open: false });
 
   // Auto-draw
@@ -195,6 +198,10 @@ export default function AdminPage() {
   const callQueueRef = useRef([]);
   const callQueueTimerRef = useRef(null);
   const isProcessingQueueRef = useRef(false);
+  // Tracks which win types have already been awarded this game.
+  // Updated synchronously (before the Firestore write) so subsequent number
+  // calls don't re-award the same category while the snapshot is still in-flight.
+  const wonTypesRef = useRef(new Set());
 
   // Schedule
   const [scheduleTime, setScheduleTime] = useState("");
@@ -245,6 +252,24 @@ export default function AdminPage() {
   }, [user, gameId]);
 
   useEffect(() => { calledSet.current = new Set(game?.calledNumbers || []); }, [game?.calledNumbers]);
+
+  // Reset wonTypesRef whenever the game resets (new game or calledNumbers cleared)
+  useEffect(() => {
+    if (!game?.calledNumbers?.length) {
+      wonTypesRef.current = new Set();
+    }
+  }, [game?.id, game?.calledNumbers?.length]);
+
+  // Sync wonTypesRef with actual Firestore winners on game load/reconnect
+  useEffect(() => {
+    if (!game?.winners) return;
+    Object.keys(game.winners).forEach(type => {
+      const arr = game.winners[type];
+      if (Array.isArray(arr) && arr.length > 0) {
+        wonTypesRef.current.add(type);
+      }
+    });
+  }, [game?.winners]);
   useEffect(() => { autoDrawEnabledRef.current = autoDrawEnabled; }, [autoDrawEnabled]);
 
   async function getAudioDurationMs(filename) {
@@ -320,17 +345,32 @@ export default function AdminPage() {
       for (const type of WIN_TYPES) {
         if (!rules[type]) continue;
 
-        // Skip check if this category is already won. 
-        // If it is rigged for multiple winners, only skip if all rigged winners have already won.
-        const riggedIds = game.riggedWinners?.[type] 
+        // ── Fast local guard (instant, no async lag) ──────────────────────
+        // wonTypesRef is marked synchronously the moment a winner is detected,
+        // so even if the Firestore snapshot hasn't arrived back yet, subsequent
+        // number calls are blocked immediately. This is what prevents Quick 7
+        // (and other categories) from being awarded again on a later number.
+        if (wonTypesRef.current.has(type)) {
+          // Still check if all rigged winners have won (multiple-winner rigging)
+          const riggedIds = game.riggedWinners?.[type]
+            ? (Array.isArray(game.riggedWinners[type]) ? game.riggedWinners[type] : [game.riggedWinners[type]])
+            : [];
+          if (riggedIds.length === 0) continue; // single-winner category, already done
+          const recordedIds = (game.winners?.[type] || []).map(w => w.ticketId);
+          const allRiggedWon = riggedIds.every(id => recordedIds.includes(id));
+          if (allRiggedWon) continue;
+        }
+
+        // ── Firestore-state guard (backup, handles reconnect/refresh) ─────
+        const riggedIds = game.riggedWinners?.[type]
           ? (Array.isArray(game.riggedWinners[type]) ? game.riggedWinners[type] : [game.riggedWinners[type]])
           : [];
-        
         if (game.winners?.[type]) {
           const recordedIds = (game.winners[type] || []).map(w => w.ticketId);
           const allRiggedWon = riggedIds.every(id => recordedIds.includes(id));
           if (riggedIds.length === 0 || allRiggedWon) {
-            continue; // Already recorded and all rigged winners satisfied, skip
+            wonTypesRef.current.add(type); // sync the local ref too
+            continue;
           }
         }
 
@@ -344,6 +384,11 @@ export default function AdminPage() {
         });
 
         if (winners.length === 0) continue;
+
+        // ── Mark as won IMMEDIATELY (before the async Firestore write) ────
+        // This is the critical fix: any subsequent detectWinners() call (triggered
+        // by the very next number being called) will see this flag and skip.
+        wonTypesRef.current.add(type);
 
         // Write all tied winners in one Firestore call (merging with existing if any)
         const existingWinners = game.winners?.[type] || [];
@@ -681,6 +726,18 @@ export default function AdminPage() {
     finally { setGenerating(false); }
   }
 
+  // ── Edit rules & prizes ──
+  async function handleUpdateRulesAndPrizes({ prizes, rules }) {
+    if (!gameId) return;
+    try {
+      await updateGameRulesAndPrizes(gameId, rules, prizes);
+      success("✅ Game rules and prizes updated successfully!");
+      setEditGameModalOpen(false);
+    } catch (e) {
+      toastError("Failed to update rules and prizes: " + e.message);
+    }
+  }
+
   // ── End game confirm ──────────────────────────────────────
   function confirmEndGame() {
     setModal({
@@ -906,6 +963,13 @@ export default function AdminPage() {
           onCancel={() => setNewGameModalOpen(false)}
         />
 
+        <EditGameModal
+          open={editGameModalOpen}
+          game={game}
+          onConfirm={handleUpdateRulesAndPrizes}
+          onCancel={() => setEditGameModalOpen(false)}
+        />
+
         {/* Content */}
         <div className="admin-content-wrap">
           <div className="admin-content">
@@ -920,26 +984,25 @@ export default function AdminPage() {
 
                   {/* Active rules badge */}
                   {game?.rules && (
-                    <div className="active-rules-bar">
-                      <span className="active-rules-label">Active prizes:</span>
-                      {/* {["topLine","middleLine","lastLine","fullHouse"].map(r =>
-                        game.rules[r] ? (
-                          <span key={r} className="active-rule-chip">
-                            {r === "corners" ? "🔶 Corners" : null}
-                            {r === "corners" ? "🔶 Corners" : null}
-                            {r === "corners" ? "🔶 Corners" : null}
-                            {r === "corners" ? "🔶 Corners" : null}
-                            {{ topLine:"Top Line", middleLine:"Middle Line", lastLine:"Last Line", fullHouse:"Full House" }[r]}
-                          </span>
-                        ) : null
-                      )} */}
-                      {["topLine", "middleLine", "lastLine", "corners", "quickSeven", "fullHouse", "secondFullHouse"].map(r =>
-                        game.rules[r] ? (
-                          <span key={r} className="active-rule-chip">
-                            {r === "corners" ? "Corners" : ({ topLine: "Top Line", middleLine: "Middle Line", lastLine: "Last Line", quickSeven: "Quick 7", fullHouse: "Full House", secondFullHouse: "2nd Full House" }[r])}
-                          </span>
-                        ) : null
-                      )}
+                    <div className="active-rules-bar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
+                        <span className="active-rules-label" style={{ marginRight: "4px" }}>Active prizes:</span>
+                        {["topLine", "middleLine", "lastLine", "corners", "quickSeven", "fullHouse", "secondFullHouse"].map(r =>
+                          game.rules[r] ? (
+                            <span key={r} className="active-rule-chip">
+                              {r === "corners" ? "Corners" : ({ topLine: "Top Line", middleLine: "Middle Line", lastLine: "Last Line", quickSeven: "Quick 7", fullHouse: "Full House", secondFullHouse: "2nd Full House" }[r])}
+                              {game.prizes?.[r] !== undefined && ` (₹${game.prizes[r]})`}
+                            </span>
+                          ) : null
+                        )}
+                      </div>
+                      <button
+                        onClick={() => setEditGameModalOpen(true)}
+                        className="admin-btn outline"
+                        style={{ padding: "4px 10px", fontSize: "0.75rem", height: "30px", display: "flex", alignItems: "center", gap: "4px" }}
+                      >
+                        ✏️ Edit Prizes & Rules
+                      </button>
                     </div>
                   )}
 
@@ -1220,7 +1283,7 @@ export default function AdminPage() {
               {activeRoute === "profit" && (
                 <section className="admin-card" style={{ gridColumn: "1 / -1" }}>
                   <h2 style={{ marginBottom: 20 }}>Profit & Pricing</h2>
-                  <ProfitTab />
+                  <ProfitTab isSuperAdmin={isSuperAdmin} />
                 </section>
               )}
 

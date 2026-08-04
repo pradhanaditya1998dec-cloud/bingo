@@ -416,3 +416,18 @@ export async function saveRiggedWinners(gameId, riggedWinners, riggedSequence) {
     riggedSequence
   });
 }
+
+export async function updateGameTicketPrice(gameId, ticketPrice) {
+  await updateDoc(doc(db, "games", gameId), {
+    ticketPrice: Number(ticketPrice)
+  });
+}
+
+export async function updateGameRulesAndPrizes(gameId, rules, prizes) {
+  await updateDoc(doc(db, "games", gameId), {
+    rules,
+    prizes
+  });
+}
+
+

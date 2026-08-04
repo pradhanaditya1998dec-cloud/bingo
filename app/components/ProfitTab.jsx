@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
-import { getAllGames } from "../lib/gameStore";
+import { getAllGames, updateGameTicketPrice } from "../lib/gameStore";
 import { formatGameId, WIN_LABELS } from "../lib/tambola";
 
 function formatTimeOnly(gameId) {
@@ -14,10 +14,43 @@ function formatTimeOnly(gameId) {
   return `${hour}:${String(mn).padStart(2, "0")} ${ampm}`;
 }
 
-export default function ProfitTab() {
+export default function ProfitTab({ isSuperAdmin = false }) {
   const [games, setGames] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedGameId, setSelectedGameId] = useState("");
+  const [isEditingPrice, setIsEditingPrice] = useState(false);
+  const [newPrice, setNewPrice] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    setIsEditingPrice(false);
+    setNewPrice("");
+  }, [selectedGameId]);
+
+  const handleSavePrice = async () => {
+    const priceNum = parseFloat(newPrice);
+    if (isNaN(priceNum) || priceNum < 0) {
+      alert("Please enter a valid ticket price (>= 0)");
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await updateGameTicketPrice(selectedGameId, priceNum);
+      setGames(prevGames => prevGames.map(g => {
+        if (g.id === selectedGameId) {
+          return { ...g, ticketPrice: priceNum };
+        }
+        return g;
+      }));
+      setIsEditingPrice(false);
+    } catch (e) {
+      console.error(e);
+      alert("Failed to update ticket price: " + e.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
 
   useEffect(() => {
     getAllGames().then(g => {
@@ -308,9 +341,96 @@ export default function ProfitTab() {
           <div className="financials-dashboard">
           {/* Key Metrics Grid */}
           <div className="metrics-grid">
-            <div className="metric-card">
+            <div className="metric-card" style={{ position: "relative" }}>
               <span className="metric-label">Ticket Price</span>
-              <span className="metric-value">₹{stats.ticketPrice}</span>
+              {isEditingPrice ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "4px" }}>
+                  <input
+                    type="number"
+                    className="admin-input"
+                    value={newPrice}
+                    onChange={e => setNewPrice(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "4px 8px",
+                      fontSize: "1rem",
+                      height: "30px",
+                      boxSizing: "border-box"
+                    }}
+                    placeholder="Enter price"
+                    min="0"
+                    step="any"
+                    autoFocus
+                  />
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <button
+                      onClick={handleSavePrice}
+                      disabled={isSaving}
+                      style={{
+                        flex: 1,
+                        padding: "4px 8px",
+                        fontSize: "0.75rem",
+                        background: "#10b981",
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: "4px",
+                        cursor: "pointer",
+                        fontWeight: "600",
+                        opacity: isSaving ? 0.7 : 1
+                      }}
+                    >
+                      {isSaving ? "Saving..." : "Save"}
+                    </button>
+                    <button
+                      onClick={() => setIsEditingPrice(false)}
+                      style={{
+                        flex: 1,
+                        padding: "4px 8px",
+                        fontSize: "0.75rem",
+                        background: "var(--border)",
+                        color: "var(--text)",
+                        border: "none",
+                        borderRadius: "4px",
+                        cursor: "pointer",
+                        fontWeight: "600"
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span className="metric-value">₹{stats.ticketPrice}</span>
+                  {isSuperAdmin && (
+                    <button
+                      onClick={() => {
+                        setNewPrice(stats.ticketPrice);
+                        setIsEditingPrice(true);
+                      }}
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        cursor: "pointer",
+                        padding: "4px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: "var(--text-muted)",
+                        transition: "color 0.2s"
+                      }}
+                      title="Edit Ticket Price"
+                      onMouseEnter={e => e.currentTarget.style.color = "var(--text)"}
+                      onMouseLeave={e => e.currentTarget.style.color = "var(--text-muted)"}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                        <path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
             
             <div className="metric-card">
