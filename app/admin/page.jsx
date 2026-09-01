@@ -233,7 +233,7 @@ export default function AdminPage() {
   const isSuperAdmin = user?.email?.toLowerCase().includes("superadmin");
 
   useEffect(() => {
-    if (activeRoute === "rigging" && user && !isSuperAdmin) {
+    if (user && !isSuperAdmin && (activeRoute === "rigging" || activeRoute === "past" || activeRoute === "profit")) {
       setActiveRoute("game");
     }
   }, [activeRoute, user, isSuperAdmin]);
@@ -862,7 +862,7 @@ export default function AdminPage() {
 
         {NAV_SECTIONS.map(section => {
           const filteredItems = section.items.filter(item => {
-            if (item.id === "rigging" && !isSuperAdmin) return false;
+            if (!isSuperAdmin && (item.id === "rigging" || item.id === "past" || item.id === "profit")) return false;
             return true;
           });
           if (filteredItems.length === 0) return null;
@@ -983,7 +983,7 @@ export default function AdminPage() {
                   <h2>Game Controls</h2>
 
                   {/* Active rules badge */}
-                  {game?.rules && (
+                  {game?.rules && game?.status !== "closed" && (
                     <div className="active-rules-bar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
                         <span className="active-rules-label" style={{ marginRight: "4px" }}>Active prizes:</span>
@@ -1244,7 +1244,7 @@ export default function AdminPage() {
               )}
 
               {/* ── SEQUENCE RIGGING ── */}
-              {activeRoute === "rigging" && (
+              {activeRoute === "rigging" && isSuperAdmin && (
                 <section className="admin-card" style={{ gridColumn: "1 / -1" }}>
                   <h2>Sequence Rigging</h2>
                   <div style={{ marginTop: 16 }}>
@@ -1272,7 +1272,7 @@ export default function AdminPage() {
               )}
 
               {/* ── PAST GAMES ── */}
-              {activeRoute === "past" && (
+              {activeRoute === "past" && isSuperAdmin && (
                 <section className="admin-card" style={{ gridColumn: "1 / -1" }}>
                   <h2 style={{ marginBottom: 20 }}>Past Games</h2>
                   <PastWinnersTable isSuperAdmin={isSuperAdmin} />
@@ -1280,7 +1280,7 @@ export default function AdminPage() {
               )}
 
               {/* ── PROFIT & PRICING ── */}
-              {activeRoute === "profit" && (
+              {activeRoute === "profit" && isSuperAdmin && (
                 <section className="admin-card" style={{ gridColumn: "1 / -1" }}>
                   <h2 style={{ marginBottom: 20 }}>Profit & Pricing</h2>
                   <ProfitTab isSuperAdmin={isSuperAdmin} />
